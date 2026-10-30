@@ -45,20 +45,29 @@ current app (`/`, `/api/health`, `/api/hello`) working.
 
 - Implement the hub decision loop: intent classification, plan templates, spoke
   routing, result aggregation, and clarification questions.
+- Implement conversation authorization: authenticate the conversation with an order
+  number plus matching email/phone, verify order ownership, and gate **every** read
+  that discloses order/PII data as well as every write (see
+  [security.md](./security.md)). Read-only paths do not bypass authorization.
 - Define routing rules from the table in [agents.md](./agents.md).
 - The LLM provider is an adapter behind an interface so the hub can be tested with a
   deterministic fake planner.
 - **Exit criteria:** for representative transcripts, the hub produces the expected
-  spoke sequence and final reply, verified with the fake planner.
+  spoke sequence and final reply, verified with the fake planner; tests prove a
+  read-only request without a valid conversation authentication is rejected before any
+  order data is disclosed.
 
 ## Phase 4 — Write spokes and guardrails
 
 - Implement the refund and order-edit spokes.
 - Implement confirmation capture, refund threshold/human-approval checks, idempotency
   keys, eligibility checks, and audit logging from [security.md](./security.md).
+- Carry the structured confirmation into every write as a `confirmationToken` and a
+  deterministic `idempotencyKey`; write spokes reject requests that omit either one.
+- Destructive actions (cancel order, remove line items) always require human approval.
 - **Exit criteria:** tests prove that unconfirmed writes are rejected, over-threshold
-  refunds require approval, refunds cannot exceed `computeRefundable`, and repeated
-  identical writes do not double-apply.
+  refunds require approval, destructive edits require human approval, refunds cannot
+  exceed `computeRefundable`, and repeated identical writes do not double-apply.
 
 ## Phase 5 — HTTP surface and UI
 
@@ -66,16 +75,26 @@ current app (`/`, `/api/health`, `/api/hello`) working.
   request-size limits.
 - Add the minimal chat surface using existing RetroUI components, keeping `/` as the
   only page.
-- **Exit criteria:** end-to-end happy path works against the fixture client; unknown
-  paths still return JSON 404; existing health/greeting behavior is unchanged.
+- **Failure visibility:** the chat surface must keep API failures visible to the user.
+  Non-2xx responses and network errors render an explicit, visible error state with a
+  retry or escalation message; the surface never swallows an agent API failure or
+  fabricates a success reply.
+- **Exit criteria:** end-to-end happy path works against the fixture client; a 5xx or
+  network failure on the agent route is shown to the user (asserted in a UI test);
+  unknown paths still return JSON 404; existing health/greeting behavior is unchanged.
 
 ## Phase 6 — Hardening and observability
 
 - Webhook ingestion with HMAC verification and idempotent processing.
+- Handle data-subject requests from the `customers/data_request` and `customers/redact`
+  compliance webhooks: locate and delete a customer's stored conversation/audit data,
+  record the deletion, and report completion. See [security.md](./security.md).
 - Metrics and structured, redacted logging; alerting on guardrail escalations and write
   failures.
 - Pin and periodically review `SHOPIFY_API_VERSION`; add a dependency/upgrade note.
-- **Exit criteria:** runbook for human approvals and incident response is documented.
+- **Exit criteria:** runbook for human approvals and incident response is documented;
+  tests prove a data-subject request deletes stored conversation/audit data for the
+  named customer and leaves other customers' data intact.
 
 ## Dependencies and ordering
 

@@ -64,17 +64,29 @@ place to enforce policy, budget, and safety rules.
    items, and totals.
 5. **Pricing.** If the amount is ambiguous, the hub asks the pricing spoke to resolve
    the refundable amount (paid amount, taxes, shipping, discounts).
-6. **Policy check (hub).** The hub applies refund guardrails from
-   [security.md](./security.md): threshold, eligibility window, prior refunds,
-   authorization. If human approval is required, the hub pauses and requests it.
-7. **Confirmation.** The hub summarizes the refund and asks the customer to confirm.
+6. **Authorization + policy check (hub).** This step has two halves with different
+   scopes:
+   - **Authorization (every request).** The hub authenticates the *conversation* to a
+     customer before disclosing any order details: it requires an order number plus a
+     matching email/phone and verifies that the order belongs to the identified
+     customer. This half runs for read-only and write requests alike and is never
+     skipped. See [security.md](./security.md).
+   - **Refund policy (refunds only).** For a refund the hub applies the
+     [security.md](./security.md) guardrails: threshold, eligibility window, prior
+     refunds. If human approval is required, the hub pauses and requests it.
+7. **Confirmation.** The hub summarizes the refund and asks the customer to confirm;
+   the confirmation is recorded as structured state and passed to the write spoke as
+   a `confirmationToken`.
 8. **Refund write.** On confirmation, the hub calls the refund spoke, which calls the
    Shopify connector to create a real refund with an idempotency key.
 9. **Reply + audit.** The hub replies with the refund result and appends an audit
    record.
 
-Read-only requests (order status, product info, pricing) follow the same pattern but
-skip steps 6–8.
+Read-only requests (order status, product info, pricing) follow the same pattern and
+**still run the authorization half of step 6**: the hub authenticates the conversation
+(order number plus matching email/phone) and verifies order ownership before
+disclosing order or PII data. They only skip the write-only steps: the refund-policy
+half of step 6, confirmation (step 7), and the write call (step 8).
 
 ## Hub↔spoke contract
 
@@ -103,8 +115,14 @@ Rules:
 
 - **Spokes are pure functions of their input plus the Shopify API.** They hold no
   conversation state.
-- **Every write is idempotent.** Write spokes accept an idempotency key derived from
-  `sessionId + action + targetId + amount`.
+- **Authorization is enforced for reads too.** The hub authenticates the conversation
+  and verifies order ownership before any spoke returns order or PII data; spokes never
+  treat a read as implicitly authorized.
+- **Every write is idempotent.** Write spokes accept an `idempotencyKey` derived from
+  `sessionId + action + targetId + amount`, carried in `SpokeRequest.input`.
+- **Every write carries a confirmation token.** Write spokes reject any request whose
+  `input.confirmationToken` is missing or does not match the hub's recorded structured
+  confirmation state.
 - **Evidence over assertions.** Read spokes return the raw identifiers/values they
   observed so the hub can cite them to the customer and to the audit log.
 - **Failures are explicit.** Spokes return typed errors with `retryable` set; the hub

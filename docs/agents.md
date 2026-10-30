@@ -36,8 +36,13 @@ delegates.
 3. Execute steps, calling spokes with typed requests.
 4. On spoke error: retry if `retryable` and within budget, else ask the customer or
    escalate.
-5. Before any write: verify guardrails and obtain customer confirmation.
-6. Compose the reply with evidence and update the audit log.
+5. Before any read that discloses order or PII data: authenticate the conversation
+   (order number plus matching email/phone) and verify the order belongs to the
+   identified customer. Reads are never treated as implicitly authorized.
+6. Before any write: verify guardrails, obtain customer confirmation, and pass the
+   resulting `confirmationToken` together with a deterministic `idempotencyKey` in the
+   write spoke's `SpokeRequest.input`.
+7. Compose the reply with evidence and update the audit log.
 
 ## Spokes (subagents)
 
@@ -53,11 +58,14 @@ envelope in [architecture.md](./architecture.md) and the principles below:
 
 - **Purpose:** Resolve "who is this customer?" without exposing unnecessary PII.
 - **Tools:**
-  - `findCustomer({ email?, phone?, orderNumber? })` → candidate customers with IDs.
+  - `findCustomer({ orderNumber, email?, phone? })` → the customer whose order matches
+    `orderNumber` and at least one matching email/phone, with the customer ID.
   - `getCustomer({ customerId })` → profile fields needed for service.
 - **Reads:** `read_customers`.
-- **Guardrails:** minimize returned PII; require at least one strong identifier; never
-  return full payment details.
+- **Guardrails:** require the two-factor rule from [security.md](./security.md) — an
+  order number plus a matching email/phone; verify the order belongs to the identified
+  customer before any order details are disclosed or any write happens; minimize
+  returned PII; never return full payment details.
 
 ### 2. Order read spoke
 
@@ -95,10 +103,13 @@ envelope in [architecture.md](./architecture.md) and the principles below:
 
 - **Purpose:** Create real refunds against real orders.
 - **Tools:**
-  - `createRefund({ orderId, amount, currency, reason, idempotencyKey })` → refund
-    result with Shopify refund ID.
+  - `createRefund({ orderId, amount, currency, reason, idempotencyKey, confirmationToken })`
+    → refund result with Shopify refund ID.
 - **Reads/writes:** `read_orders`, `write_orders` (refund mutations).
 - **Guardrails:**
+  - Must receive a confirmation token (`confirmationToken`) from the hub that matches
+    the hub's recorded structured confirmation state, and a deterministic
+    `idempotencyKey`; it rejects any request missing either one.
   - Must receive an explicit customer confirmation captured by the hub.
   - Amount must not exceed `computeRefundable` from the pricing spoke.
   - Honors the auto-refund threshold and human-approval rule in
@@ -108,15 +119,16 @@ envelope in [architecture.md](./architecture.md) and the principles below:
 ### 6. Order edit spoke (write)
 
 - **Purpose:** Modify an existing order.
-- **Tools:**
-  - `updateShippingAddress({ orderId, address })`
-  - `addLineItem({ orderId, variantId, quantity })`
-  - `removeLineItem({ orderId, lineItemId })`
-  - `cancelOrder({ orderId, reason })`
+- **Tools:** every edit takes an `idempotencyKey` and a `confirmationToken`:
+  - `updateShippingAddress({ orderId, address, idempotencyKey, confirmationToken })`
+  - `addLineItem({ orderId, variantId, quantity, idempotencyKey, confirmationToken })`
+  - `removeLineItem({ orderId, lineItemId, idempotencyKey, confirmationToken })`
+  - `cancelOrder({ orderId, reason, idempotencyKey, confirmationToken })`
 - **Reads/writes:** `read_orders`, `write_orders`.
-- **Guardrails:** each edit requires confirmation and is validated against order state
-  (for example, cannot edit a fully refunded order); destructive edits (cancel) always
-  require human approval.
+- **Guardrails:** each edit rejects requests without a valid `confirmationToken` and a
+  deterministic `idempotencyKey`, and is validated against order state (for example,
+  cannot edit a fully refunded order); destructive edits (cancel order, remove line
+  items) always require human approval.
 
 ## Routing summary
 

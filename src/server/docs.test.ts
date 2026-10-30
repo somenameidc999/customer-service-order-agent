@@ -86,3 +86,72 @@ test('implementation plan defines phases and a definition of done', async () => 
   assert.match(plan, /npm run check/)
   assert.match(plan, /ShopifyFixtureClient/)
 })
+
+// Regression guard for PR #7 review finding P1: the request flow must not let
+// read-only requests skip authorization before disclosing order/PII data.
+test('the request flow authenticates read-only requests instead of skipping it', async () => {
+  const architecture = await readDoc('architecture.md')
+  assert.match(architecture, /read-only/i)
+  assert.match(architecture, /still run the authorization half of step 6/i)
+  assert.match(architecture, /order number plus\s+(a\s+)?matching email\/phone/i)
+  assert.doesNotMatch(architecture, /skip steps 6/, 'read-only requests must not skip authorization')
+})
+
+// Regression guard for PR #7 review finding P2: write tool contracts must carry
+// the confirmation token and the idempotency key the guardrails require.
+test('write tool contracts carry a confirmation token and an idempotency key', async () => {
+  const agents = await readDoc('agents.md')
+  assert.match(agents, /createRefund\(\{[^}]*idempotencyKey[^}]*confirmationToken[^}]*\}/)
+  const orderEditTools = ['updateShippingAddress', 'addLineItem', 'removeLineItem', 'cancelOrder']
+  for (const tool of orderEditTools) {
+    const signature = new RegExp(`${tool}\\(\\{[^}]*idempotencyKey[^}]*confirmationToken[^}]*\\}`)
+    assert.match(agents, signature, `${tool} should take an idempotencyKey and confirmationToken`)
+  }
+})
+
+// Regression guard for PR #7 review finding P2 (R18a): removing line items is
+// destructive and must always require human approval.
+test('the order-edit guardrail requires human approval to remove line items', async () => {
+  const agents = await readDoc('agents.md')
+  assert.match(agents, /destructive edits \(cancel order, remove line\s+items\)[^]*?human approval/i)
+})
+
+// Regression guard for PR #7 review finding P2 (R6a): customer lookup must follow
+// the two-factor authorization rule rather than accepting a single identifier.
+test('customer lookup follows the two-factor authorization rule', async () => {
+  const agents = await readDoc('agents.md')
+  assert.match(agents, /findCustomer\(\{[^}]*orderNumber[^}]*\}/)
+  assert.match(agents, /two-factor rule/i)
+  assert.match(agents, /order number plus\s+(a\s+)?matching email\/phone/i)
+})
+
+// Regression guard for PR #7 review coverage gaps (R43, R26a): the plan must assign
+// chat API failure visibility and data-subject request handling to phases.
+test('the plan assigns chat failure visibility and data-subject handling', async () => {
+  const plan = await readDoc('implementation-plan.md')
+  assert.match(plan, /failure visibility/i)
+  assert.match(plan, /never swallows an agent API failure|keeps? API failures visible/i)
+  assert.match(plan, /customers\/data_request/)
+  assert.match(plan, /customers\/redact/)
+  assert.match(plan, /data-subject/i)
+})
+
+// Regression guard for PR #7 review finding P3: the safety rules must agree across
+// documents, not merely appear in each of them.
+test('security, architecture, and agents agree on authorization, confirmation, and idempotency', async () => {
+  const [security, architecture, agents] = await Promise.all([
+    readDoc('security.md'),
+    readDoc('architecture.md'),
+    readDoc('agents.md'),
+  ])
+  for (const doc of [architecture, agents]) {
+    assert.match(doc, /authenticat/i)
+    assert.match(doc, /order number plus\s+(a\s+)?matching email\/phone/i)
+  }
+  for (const doc of [security, architecture, agents]) {
+    assert.match(doc, /confirmation token/i)
+  }
+  for (const doc of [architecture, agents]) {
+    assert.match(doc, /idempotency[ _]?key/i)
+  }
+})
