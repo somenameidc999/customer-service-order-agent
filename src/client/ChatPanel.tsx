@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { Bubble, Button, TextArea } from 'pixel-retroui'
-import type { AgentEvent, ChatMessage } from '../shared/chat'
+import { limitChatHistory, type AgentEvent, type ChatMessage } from '../shared/chat'
 
 const ink = '#263f34'
 
@@ -126,8 +126,12 @@ export function ChatPanel() {
     const userMessage: UiMessage = { id: newId(), role: 'user', content: text, activities: [], pending: false, failed: false }
     const assistantId = newId()
     const assistantMessage: UiMessage = { id: assistantId, role: 'assistant', content: '', activities: [], pending: true, failed: false }
-    const history = [...messages.filter((message) => message.content.trim().length > 0), userMessage]
-      .map((message): ChatMessage => ({ id: message.id, role: message.role, content: message.content, createdAt: new Date().toISOString() }))
+    // The server rejects more than `CHAT_LIMITS.maxMessages` messages, so keep
+    // only the most recent turns; otherwise a long chat is stranded after ~26 turns.
+    const history = limitChatHistory(
+      [...messages.filter((message) => message.content.trim().length > 0), userMessage]
+        .map((message): ChatMessage => ({ id: message.id, role: message.role, content: message.content, createdAt: new Date().toISOString() })),
+    )
 
     stickToBottom.current = true
     setMessages((current) => [...current, userMessage, assistantMessage])
@@ -174,6 +178,14 @@ export function ChatPanel() {
     }
   }
 
+  function clearConversation() {
+    if (busy) return
+    setMessages([])
+    setDraft('')
+    setError('')
+    stickToBottom.current = true
+  }
+
   function onKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
     if (event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault()
@@ -185,7 +197,21 @@ export function ChatPanel() {
     <div className="chat-panel">
       <div className="chat-toolbar">
         <span className="chat-toolbar-title"><span className="status-dot" /> AGENT CHAT</span>
-        <span className="chat-toolbar-hint">Enter to send · Shift+Enter for a new line</span>
+        <span className="chat-toolbar-actions">
+          <span className="chat-toolbar-hint">Enter to send · Shift+Enter for a new line</span>
+          <Button
+            type="button"
+            onClick={clearConversation}
+            disabled={busy || messages.length === 0}
+            bg="#f4f2e9"
+            textColor={ink}
+            shadow="#d9c5ad"
+            borderColor={ink}
+            className="button chat-clear"
+          >
+            Clear
+          </Button>
+        </span>
       </div>
 
       <div className="chat-scroll" ref={scrollRef} onScroll={onScroll} role="log" aria-live="polite" aria-label="Chat history">

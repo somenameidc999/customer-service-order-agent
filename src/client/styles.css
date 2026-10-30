@@ -201,7 +201,9 @@ footer svg { width: 13px; height: 13px; color: #6e815d; }
 .chat-panel { margin-top: 20px; border: 2px solid var(--ink); background: #fffdf5; }
 .chat-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 14px; border-bottom: 1px solid #c9cec0; font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', monospace; font-size: 9px; letter-spacing: 1px; color: #6e7b63; }
 .chat-toolbar-title { display: inline-flex; align-items: center; gap: 8px; color: #3a4f3c; }
+.chat-toolbar-actions { display: inline-flex; align-items: center; gap: 10px; }
 .chat-toolbar .status-dot { width: 6px; height: 6px; }
+.chat-clear { padding: 4px 9px; font-size: 9px; line-height: 1; }
 .chat-empty { color: #7a8371; font-size: 12px; text-align: center; padding: 24px 0; }
 .chat-empty p { margin: 4px 0; }
 .chat-empty-hint { font-size: 11px; }

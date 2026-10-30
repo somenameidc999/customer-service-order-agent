@@ -9,7 +9,7 @@ import { validateChatBody } from './agent/chat-route.js'
 import { createOpenRouterClient } from './agent/openrouter.js'
 import { createToolRegistry, type ToolDefinition } from './agent/tools.js'
 import type { LlmClient } from './agent/openrouter.js'
-import type { AgentEvent } from '../shared/chat.js'
+import { CHAT_LIMITS, limitChatHistory, type AgentEvent } from '../shared/chat.js'
 
 // The client sources use JSX but this test runs without a bundler, so the
 // classic runtime needs a React global before App.tsx is evaluated.
@@ -39,6 +39,41 @@ test('chat body validation rejects empty, oversized and malformed messages', () 
   assert.equal(validateChatBody({ messages: [{ role: 'system', content: 'hi' }] }).ok, false)
   assert.equal(validateChatBody({ messages: [{ role: 'user', content: 'x'.repeat(4001) }] }).ok, false)
   assert.equal(validateChatBody({ messages: new Array(51).fill({ role: 'user', content: 'hi' }) }).ok, false)
+})
+
+test('limitChatHistory keeps a long conversation within the server message limit', () => {
+  const messages = Array.from({ length: 60 }, (_, index) => ({ role: index % 2 === 0 ? 'user' : 'assistant', content: `turn ${index}` }))
+  const limited = limitChatHistory(messages)
+  assert.equal(limited.length, CHAT_LIMITS.maxMessages)
+  // The newest turns survive so the in-progress user message is still sent.
+  assert.deepEqual(limited[limited.length - 1], messages[messages.length - 1])
+  assert.deepEqual(limited[0], messages[messages.length - CHAT_LIMITS.maxMessages])
+})
+
+test('limitChatHistory returns short histories and copies without mutation', () => {
+  const messages = [{ content: 'a' }, { content: 'b' }]
+  const limited = limitChatHistory(messages)
+  assert.deepEqual(limited, messages)
+  assert.notEqual(limited, messages)
+  assert.deepEqual(limitChatHistory(messages, 0), [])
+  assert.deepEqual(limitChatHistory(messages, 1), [{ content: 'b' }])
+})
+
+// A 26th user turn builds 51 messages; the client must trim before the server's
+// 50-message cap so the conversation is not permanently rejected.
+test('a conversation past the message cap still fits one request', () => {
+  const created = new Date().toISOString()
+  let visible: Array<{ role: 'user' | 'assistant'; content: string }> = []
+  for (let turn = 0; turn < 26; turn += 1) {
+    visible = [...visible, { role: 'user', content: `question ${turn}` }, { role: 'assistant', content: `answer ${turn}` }]
+  }
+  const outgoing = limitChatHistory(
+    visible
+      .filter((message) => message.content.trim().length > 0)
+      .map((message, index) => ({ id: `m${index}`, role: message.role, content: message.content, createdAt: created })),
+  )
+  assert.ok(outgoing.length <= CHAT_LIMITS.maxMessages)
+  assert.equal(outgoing[outgoing.length - 1]?.content, 'answer 25')
 })
 
 test('agent turn streams hooks, a subagent, a tool call and the final message', async () => {
@@ -142,6 +177,7 @@ test('the chat interface renders history, composer and activity affordances', as
   assert.match(html, /aria-label="Chat history"/)
   assert.match(html, /aria-label="Message the agent"/)
   assert.match(html, /chat-composer/)
+  assert.match(html, /class="[^"]*chat-clear[^"]*"[^>]*>Clear</)
 })
 
 test('the greeting submit button stays unique for the browser scenario', async () => {
