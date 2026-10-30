@@ -35,11 +35,14 @@ Optional environment variables: `PORT` changes the API port (default `8787`); `H
 ```text
 index.html                  The only frontend HTML entry
 src/client/App.tsx          The only frontend page
+src/client/ChatPanel.tsx    Chat history, composer and activity indicators
 src/client/styles.css       Page layout and theme
 src/server/app.ts           Hono routes and production static serving
 src/server/index.ts         Node server entry
+src/server/agent/           Chat agent: OpenRouter client, hooks, tools, SSE route
 src/server/app.test.ts      API and routing tests
 src/shared/contracts.ts     Shared API response types
+src/shared/chat.ts          Shared chat and agent event types
 vite.config.ts              React build and development API proxy
 ```
 
@@ -49,12 +52,33 @@ vite.config.ts              React build and development API proxy
 | --- | --- | --- |
 | GET | `/api/health` | Status, service name, and server timestamp |
 | GET | `/api/hello?name=Ada` | Personalized greeting from Hono |
+| POST | `/api/chat` | Streams an agent turn as server-sent events |
 
 The greeting name defaults to `builder`. Supplied names are trimmed and must contain 1–40 characters. Invalid names return HTTP 400 with an error message.
 
 There is no frontend router and no additional frontend page. Vite's SPA fallback is disabled. In production, Hono serves `/` and `/assets/*`; unknown routes return HTTP 404 JSON. Add future API routes in `src/server/app.ts`.
 
-No database, authentication, external service, environment file, or secret is required.
+## Chat interface
+
+The single page includes an agent chat surface. It keeps the running conversation visible, lets you scroll the history, and shows live activity for the agent's **hooks**, **subagents** (spokes) and **tool calls** as they run. It calls `POST /api/chat`, which streams server-sent events (`hook`, `subagent`, `tool_call`, `assistant_message`, `error`).
+
+Agent replies come from [OpenRouter](https://openrouter.ai/). Configure the key in the environment before starting the server:
+
+```sh
+OPENROUTER_API_KEY=... npm start
+```
+
+Optional environment variables:
+
+| Variable | Purpose | Default |
+| --- | --- | --- |
+| `OPENROUTER_API_KEY` | OpenRouter API key. Required for live replies. | unset |
+| `OPENROUTER_MODEL` | Model slug to call | `openai/gpt-4o-mini` |
+| `OPENROUTER_BASE_URL` | OpenRouter-compatible API base URL | `https://openrouter.ai/api/v1` |
+
+When `OPENROUTER_API_KEY` is missing or the provider fails, the chat surface shows an explicit error instead of a fabricated reply, and `POST /api/chat` returns HTTP 400 for malformed requests. The key is read from the environment only and is never sent to the browser or written to logs.
+
+No database, authentication, external service, or environment file is required. The only optional external dependency is the OpenRouter key used by the chat interface.
 
 ## Documentation
 

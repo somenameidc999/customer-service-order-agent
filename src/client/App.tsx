@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Button, Card, Input } from 'pixel-retroui'
 import type { ErrorResponse, HealthResponse, HelloResponse } from '../shared/contracts'
+import { ChatPanel } from './ChatPanel'
 
 const ink = '#263f34'
 const repoUrl = 'https://github.com/somenameidc999/hono-react-starter'
@@ -145,6 +146,17 @@ export function App() {
               <li><span className="tech-icon retro-icon">▦</span><div><strong>RetroUI</strong><span>Pixels with personality</span></div><span className="tech-tag">COMPONENTS</span></li>
               <li><span className="tech-icon ts-icon">TS</span><div><strong>TypeScript</strong><span>A little more confidence</span></div><span className="tech-tag">END TO END</span></li>
             </ul>
+          </Card>
+        </section>
+
+        <div className="section-rule"><span>AGENT CHAT</span><span>02 / TALK TO THE ASSISTANT</span></div>
+
+        <section className="chat-section" aria-labelledby="chat-title">
+          <Card bg="#e5e9dc" borderColor={ink} shadowColor="#c6c9b9" textColor={ink} className="chat-card">
+            <div className="card-topline"><span className="eyebrow">03 / CHAT WITH THE AGENT</span><span className="live-tag"><span className="status-dot" /> OPENROUTER</span></div>
+            <h2 id="chat-title">Send a message. Watch the agent work<span className="coral">.</span></h2>
+            <p className="card-description">Your messages, the agent&apos;s replies, and every tool call, subagent and hook in between.</p>
+            <ChatPanel />
           </Card>
         </section>
 
