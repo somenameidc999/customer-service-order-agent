@@ -120,9 +120,12 @@ export function App() {
             <h2 id="playground">Say hello to your backend<span className="coral">.</span></h2>
             <p className="card-description">A real request. A real response. The whole stack, saying hi.</p>
             <form onSubmit={sayHello}>
-              <label htmlFor="name">YOUR NAME</label>
+              <div className="field-label-row">
+                <label htmlFor="name">YOUR NAME</label>
+                <span id="name-hint" className="field-hint">Use 1–40 characters.</span>
+              </div>
               <div className="form-row">
-                <Input id="name" name="name" value={name} onChange={(event) => setName(event.target.value)} placeholder="e.g. Ada" required maxLength={40} bg="#f4f2e9" textColor={ink} borderColor={ink} className="name-input" />
+                <Input id="name" name="name" value={name} onChange={(event) => setName(event.target.value)} placeholder="e.g. Ada" required maxLength={40} aria-describedby="name-hint" bg="#f4f2e9" textColor={ink} borderColor={ink} className="name-input" />
                 <Button type="submit" disabled={pending} bg="#f2a38d" textColor={ink} shadow="#d9c5ad" borderColor={ink} className="button send-button">{pending ? 'Sending…' : 'Send request'} <Arrow /></Button>
               </div>
             </form>
