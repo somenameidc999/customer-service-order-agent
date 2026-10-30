@@ -1,0 +1,37 @@
+{
+  "name": "hono-react-starter",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "A single-page Hono + React starter with pixel RetroUI components.",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "dev": "concurrently -k -n api,web -c yellow,cyan \"npm:dev:api\" \"npm:dev:web\"",
+    "dev:api": "tsx watch src/server/index.ts",
+    "dev:web": "vite",
+    "typecheck": "tsc -p tsconfig.client.json && tsc -p tsconfig.server.json --noEmit",
+    "test": "tsx --test src/server/*.test.ts",
+    "build": "npm run typecheck && vite build && tsc -p tsconfig.server.json",
+    "start": "node dist/server/index.js",
+    "check": "npm run test && npm run build"
+  },
+  "dependencies": {
+    "@hono/node-server": "^2.1.5",
+    "hono": "^4.13.14",
+    "pixel-retroui": "^2.1.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.2",
+    "concurrently": "^10.0.6",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.5"
+  }
+}
