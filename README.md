@@ -56,6 +56,13 @@ There is no frontend router and no additional frontend page. Vite's SPA fallback
 
 No database, authentication, external service, environment file, or secret is required.
 
+## Documentation
+
+The `docs/` directory contains the design and plan for a hub-and-spoke customer
+service agent that integrates with Shopify (order/customer/product lookups, pricing,
+refunds, and order edits). Start at [`docs/README.md`](docs/README.md). These are
+design documents only; the starter app is unchanged.
+
 ## References
 
 - [Hono](https://hono.dev/)
