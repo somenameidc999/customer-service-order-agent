@@ -1,0 +1,56 @@
+{
+  "version": 1,
+  "install": [
+    {
+      "cwd": ".",
+      "argv": [
+        "npm",
+        "ci",
+        "--ignore-scripts",
+        "--no-audit",
+        "--no-fund"
+      ],
+      "timeoutMs": 600000
+    }
+  ],
+  "checks": [
+    {
+      "cwd": ".",
+      "argv": [
+        "npm",
+        "run",
+        "check"
+      ],
+      "timeoutMs": 600000
+    }
+  ],
+  "protectedPaths": [
+    ".dpi",
+    "package.json",
+    "package-lock.json",
+    "src/server/app.test.ts",
+    "tsconfig.json",
+    "tsconfig.client.json",
+    "tsconfig.server.json",
+    "vite.config.ts",
+    ".gitignore"
+  ],
+  "environment": {},
+  "evidence": [
+    ".dpi-evidence/healthy.png",
+    ".dpi-evidence/error.png",
+    ".dpi-evidence/browser.json"
+  ],
+  "requiredChecks": [
+    "check"
+  ],
+  "reviewRequirements": [
+    "The application has one frontend page at /.",
+    "Health and greeting behaviors must use real API requests.",
+    "API failures must remain visible to the user."
+  ],
+  "browser": {
+    "scenario": ".dpi/browser.json",
+    "timeoutMs": 120000
+  }
+}
