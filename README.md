@@ -20,7 +20,7 @@ The default page includes RetroUI `Card`, `Button`, and `Input` components. The 
 | Command | Purpose |
 | --- | --- |
 | `npm run dev` | Start the API and frontend together |
-| `npm run typecheck` | Check frontend and backend TypeScript |
+| `npm run typecheck` | Check frontend, backend, and server test TypeScript |
 | `npm test` | Check API behavior and the single-page routing constraint |
 | `npm run build` | Type-check and build the frontend and backend |
 | `npm start` | Serve the production build and API from Hono on port 8787 |
@@ -41,6 +41,7 @@ src/server/index.ts         Node server entry
 src/server/app.test.ts      API and routing tests
 src/shared/contracts.ts     Shared API response types
 vite.config.ts              React build and development API proxy
+tsconfig.test.json          TypeScript check for server test files
 ```
 
 ## API

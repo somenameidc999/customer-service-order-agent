@@ -136,17 +136,35 @@ test('the plan assigns chat failure visibility and data-subject handling', async
   assert.match(plan, /data-subject/i)
 })
 
+// Regression guard for the follow-up to PR #7 review finding P3: the high-level
+// capability summary must not advertise a single-identifier customer lookup, because
+// the two-factor rule (order number plus matching email/phone) is the guardrail the
+// normative documents enforce.
+test('the capability summary matches the two-factor customer-lookup rule', async () => {
+  const index = await readDoc('README.md')
+  assert.match(index, /two-factor rule/i)
+  assert.match(index, /order number plus\s+(a\s+)?matching email\s*(or|\/)\s*phone/i)
+  assert.match(index, /single identifier is never enough/i)
+  assert.doesNotMatch(
+    index,
+    /by email, phone, or order reference/i,
+    'the summary must not allow lookup from a single identifier',
+  )
+})
+
 // Regression guard for PR #7 review finding P3: the safety rules must agree across
-// documents, not merely appear in each of them.
-test('security, architecture, and agents agree on authorization, confirmation, and idempotency', async () => {
-  const [security, architecture, agents] = await Promise.all([
+// documents, not merely appear in each of them. The docs index is included so its
+// summary cannot drift away from the normative rule.
+test('security, architecture, agents, and the docs index agree on authorization, confirmation, and idempotency', async () => {
+  const [security, architecture, agents, index] = await Promise.all([
     readDoc('security.md'),
     readDoc('architecture.md'),
     readDoc('agents.md'),
+    readDoc('README.md'),
   ])
-  for (const doc of [architecture, agents]) {
+  for (const doc of [architecture, agents, index]) {
     assert.match(doc, /authenticat/i)
-    assert.match(doc, /order number plus\s+(a\s+)?matching email\/phone/i)
+    assert.match(doc, /order number plus\s+(a\s+)?matching email\s*(or|\/)\s*phone/i)
   }
   for (const doc of [security, architecture, agents]) {
     assert.match(doc, /confirmation token/i)

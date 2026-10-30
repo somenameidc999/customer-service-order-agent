@@ -35,7 +35,10 @@ Out of scope (future issues):
 ## Key capabilities the agent must provide
 
 1. **Order information** — tell the customer about an order (status, totals, line items, fulfillment).
-2. **Customer lookup** — find a customer by email, phone, or order reference.
+2. **Customer lookup** — identify the customer behind an order using the two-factor rule:
+   the order number plus a matching email or phone. A single identifier is never enough,
+   and order ownership is verified before any order details are disclosed
+   ([agents.md](./agents.md), [security.md](./security.md)).
 3. **Pricing information** — quote current prices, discounts, and refundable amounts.
 4. **Shopify connectivity** — authenticate to a Shopify store with an app client ID/secret to obtain an access token.
 5. **Refunds** — create real refunds against real orders.
