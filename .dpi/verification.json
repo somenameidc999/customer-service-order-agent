@@ -41,7 +41,9 @@
     ".dpi-evidence/error.png",
     ".dpi-evidence/browser.json"
   ],
-  "requiredChecks": [],
+  "requiredChecks": [
+    "check"
+  ],
   "reviewRequirements": [
     "The application has one frontend page at /.",
     "Health and greeting behaviors must use real API requests.",
