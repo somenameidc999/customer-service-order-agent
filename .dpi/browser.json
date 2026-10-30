@@ -1,0 +1,95 @@
+{
+  "server": {
+    "cwd": ".",
+    "argv": [
+      "npm",
+      "start"
+    ],
+    "readyPath": "/api/health",
+    "readyTimeoutMs": 15000
+  },
+  "steps": [
+    {
+      "action": "goto",
+      "path": "/"
+    },
+    {
+      "action": "text",
+      "text": "All systems ready"
+    },
+    {
+      "action": "text",
+      "text": "\"status\""
+    },
+    {
+      "action": "text",
+      "text": "\"hono\""
+    },
+    {
+      "action": "fill",
+      "selector": "#name",
+      "value": "Ada"
+    },
+    {
+      "action": "click",
+      "selector": "button[type=\"submit\"]",
+      "responsePath": "/api/hello",
+      "status": 200
+    },
+    {
+      "action": "text",
+      "text": "Hello, Ada! Your full stack is connected."
+    },
+    {
+      "action": "screenshot",
+      "name": "healthy.png"
+    },
+    {
+      "action": "fill",
+      "selector": "#name",
+      "value": "   "
+    },
+    {
+      "action": "click",
+      "selector": "button[type=\"submit\"]",
+      "responsePath": "/api/hello",
+      "status": 400
+    },
+    {
+      "action": "text",
+      "text": "Use a name between 1 and 40 characters."
+    },
+    {
+      "action": "request",
+      "path": "/unknown-route",
+      "status": 404,
+      "json": {
+        "error": "Not found"
+      }
+    },
+    {
+      "action": "request",
+      "path": "/api/unknown",
+      "status": 404,
+      "json": {
+        "error": "Not found"
+      }
+    },
+    {
+      "action": "offline",
+      "path": "/api/health"
+    },
+    {
+      "action": "goto",
+      "path": "/"
+    },
+    {
+      "action": "text",
+      "text": "API offline"
+    },
+    {
+      "action": "screenshot",
+      "name": "error.png"
+    }
+  ]
+}
