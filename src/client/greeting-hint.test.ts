@@ -8,7 +8,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 ;(globalThis as Record<string, unknown>).React = React
 
 async function renderHome() {
-  const { App } = await import('../client/App.js')
+  const { App } = await import('./App')
   return renderToStaticMarkup(React.createElement(App))
 }
 
@@ -21,5 +21,5 @@ test('the name field shows visible guidance connected with aria-describedby', as
 test('the name field keeps its 40-character limit and required state', async () => {
   const html = await renderHome()
   assert.match(html, /<input[^>]*id="name"[^>]*maxlength="40"/i)
-  assert.match(html, /<input[^>]*id="name"[^>]*required/) 
+  assert.match(html, /<input[^>]*id="name"[^>]*required/)
 })

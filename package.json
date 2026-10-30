@@ -12,7 +12,7 @@
     "dev:api": "tsx watch src/server/index.ts",
     "dev:web": "vite",
     "typecheck": "tsc -p tsconfig.client.json && tsc -p tsconfig.server.json --noEmit",
-    "test": "tsx --test src/server/*.test.ts",
+    "test": "tsx --test src/server/*.test.ts src/client/*.test.ts",
     "build": "npm run typecheck && vite build && tsc -p tsconfig.server.json",
     "start": "node dist/server/index.js",
     "check": "npm run test && npm run build"
