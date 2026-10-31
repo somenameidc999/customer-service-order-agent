@@ -4,7 +4,9 @@ This document describes how the agent authenticates to a Shopify store, which AP
 uses, and how store data is mapped into the hub-and-spoke design in
 [architecture.md](./architecture.md).
 
-> **Status: design only.** No live credentials, tokens, or store identifiers belong in
+> **Status: token acquisition is implemented** in `src/server/shopify/`
+> (`loadShopifyConfig` and `createShopifyTokenProvider`); the remaining spoke and write
+> flows are still design only. No live credentials, tokens, or store secrets belong in
 > this repository. The examples below use placeholders.
 
 ## 1. Configuration and secrets

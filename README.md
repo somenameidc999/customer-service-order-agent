@@ -40,6 +40,7 @@ src/client/styles.css       Page layout and theme
 src/server/app.ts           Hono routes and production static serving
 src/server/index.ts         Node server entry
 src/server/agent/           Chat agent: OpenRouter client, hooks, tools, SSE route
+src/server/shopify/         Shopify connector: env config and access-token acquisition
 src/server/app.test.ts      API and routing tests
 src/shared/contracts.ts     Shared API response types
 src/shared/chat.ts          Shared chat and agent event types
@@ -78,14 +79,38 @@ Optional environment variables:
 
 When `OPENROUTER_API_KEY` is missing or the provider fails, the chat surface shows an explicit error instead of a fabricated reply, and `POST /api/chat` returns HTTP 400 for malformed requests. The key is read from the environment only and is never sent to the browser or written to logs.
 
-No database, authentication, external service, or environment file is required. The only optional external dependency is the OpenRouter key used by the chat interface.
+No database, authentication, external service, or environment file is required. The only optional external dependencies are the OpenRouter key used by the chat interface and the Shopify credentials used by the connector.
+
+## Shopify connector
+
+The connector (`src/server/shopify/`) reads the Shopify app credentials from the server environment (or a `.env` file) and obtains an Admin API access token with the client credentials grant, caching it until shortly before it expires. Credentials are read server-side only and are never logged, returned in responses, or sent to the browser. See [`docs/shopify-integration.md`](docs/shopify-integration.md) for the full design.
+
+| Variable | Purpose | Default |
+| --- | --- | --- |
+| `SHOPIFY_STORE_DOMAIN` | Store host | `nate-ce.myshopify.com` |
+| `SHOPIFY_CLIENT_ID` | Shopify app client ID (required) | unset |
+| `SHOPIFY_CLIENT_SECRET` | Shopify app client secret (required) | unset |
+| `SHOPIFY_SCOPES` | Comma-separated Admin API scopes | unset |
+| `SHOPIFY_API_VERSION` | Pinned Admin API version | `2025-01` |
+| `SHOPIFY_ACCESS_TOKEN` | Pre-provisioned token that skips acquisition | unset |
+
+```ts
+import { getShopifyAccessToken } from './src/server/shopify/index.js'
+
+const accessToken = await getShopifyAccessToken()
+```
+
+A missing or malformed credential fails with an actionable error at the point the
+connector is used; the rest of the app keeps running without Shopify configured.
 
 ## Documentation
 
 The `docs/` directory contains the design and plan for a hub-and-spoke customer
 service agent that integrates with Shopify (order/customer/product lookups, pricing,
-refunds, and order edits). Start at [`docs/README.md`](docs/README.md). These are
-design documents only; the starter app is unchanged.
+refunds, and order edits). Start at [`docs/README.md`](docs/README.md). The Shopify
+token acquisition described in [`docs/shopify-integration.md`](docs/shopify-integration.md)
+is implemented in `src/server/shopify/`; the remaining spokes and writes are still
+design only.
 
 ## References
 
