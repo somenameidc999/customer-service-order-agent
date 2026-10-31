@@ -4,10 +4,14 @@ This document describes how the agent authenticates to a Shopify store, which AP
 uses, and how store data is mapped into the hub-and-spoke design in
 [architecture.md](./architecture.md).
 
-> **Status: token acquisition is implemented** in `src/server/shopify/`
-> (`loadShopifyConfig` and `createShopifyTokenProvider`); the remaining spoke and write
-> flows are still design only. No live credentials, tokens, or store secrets belong in
-> this repository. The examples below use placeholders.
+> **Status: token acquisition and fixture-backed spokes are implemented.** Token
+> acquisition lives in `src/server/shopify/` (`loadShopifyConfig` and
+> `createShopifyTokenProvider`). The customer, product, order and refund spokes and
+> their tools live in `src/server/agent/shopify-spokes.ts`, backed by the offline
+> `ShopifyFixtureClient` in `src/server/shopify/client.ts`; the coordinator routes to
+> them through `src/server/agent/planner.ts`. Live GraphQL calls and the write
+> guardrail store are still design only. No live credentials, tokens, or store secrets
+> belong in this repository. The examples below use placeholders.
 
 ## 1. Configuration and secrets
 

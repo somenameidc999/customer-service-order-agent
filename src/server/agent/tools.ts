@@ -1,6 +1,8 @@
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import type { ShopifyClient } from '../shopify/client.js'
+import { createShopifySpokeTools } from './shopify-spokes.js'
 
 /** A tool exposed to the model, owned by a single spoke (subagent). */
 export interface ToolSpec {
@@ -118,4 +120,13 @@ export function createToolRegistry(definitions: ToolDefinition[] = toolDefinitio
     specs: definitions.map((definition) => definition.spec),
     get: (name) => byName.get(name),
   }
+}
+
+/**
+ * The hub's full tool set: built-in utilities plus every Shopify spoke.
+ * The Shopify client defaults to the offline fixture client so the app runs
+ * without credentials; callers can inject a live client later.
+ */
+export function createCommerceToolRegistry(client?: ShopifyClient): ToolRegistry {
+  return createToolRegistry([...toolDefinitions, ...createShopifySpokeTools(client)])
 }

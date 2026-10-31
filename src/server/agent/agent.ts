@@ -1,6 +1,7 @@
 import type { AgentEvent, ChatMessage } from '../../shared/chat.js'
 import { createOpenRouterClient, type LlmClient, type LlmMessage } from './openrouter.js'
-import { createToolRegistry, type ToolRegistry } from './tools.js'
+import { planGuidance, planTurn } from './planner.js'
+import { createCommerceToolRegistry, type ToolRegistry } from './tools.js'
 
 export type AgentEmitter = (event: AgentEvent) => void
 
@@ -18,11 +19,15 @@ export interface AgentOptions {
 }
 
 const SYSTEM_PROMPT = [
-  'You are the assistant for a customer service order application.',
-  'Answer the user directly and concisely.',
+  'You are the hub coordinator for a customer service order application.',
+  'You do not call Shopify directly: decide which spoke (subagent) should handle each',
+  'step, spawn it by calling its tool, and aggregate the result into one reply.',
   'Prefer calling a tool over guessing whenever a tool can answer the question:',
-  'use get_server_time for date or time questions, calculate for arithmetic,',
-  'and search_docs for questions about how this application or agent works.',
+  'use findCustomer/getCustomer for identity, the order tools for order status and edits,',
+  'the product tools for product information, the refund tools for refund history and refunds,',
+  'get_server_time for date or time questions, calculate for arithmetic, and search_docs for',
+  'questions about how this application or agent works.',
+  'Never disclose order or customer data before the customer has been identified.',
   'After a tool returns, use its result in your reply.',
 ].join(' ')
 
@@ -64,13 +69,21 @@ function parseArguments(text: string): Record<string, unknown> {
   }
 }
 
-function toLlmMessages(messages: ChatMessage[]): LlmMessage[] {
+function toLlmMessages(messages: ChatMessage[], guidance?: string): LlmMessage[] {
   return [
-    { role: 'system', content: SYSTEM_PROMPT },
+    { role: 'system', content: guidance ? `${SYSTEM_PROMPT} ${guidance}` : SYSTEM_PROMPT },
     ...messages
       .filter((message) => message.content.trim().length > 0)
       .map((message) => ({ role: message.role, content: message.content })),
   ]
+}
+
+function lastUserMessage(messages: ChatMessage[]): string {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index]
+    if (message && message.role === 'user') return message.content
+  }
+  return ''
 }
 
 /**
@@ -80,14 +93,24 @@ function toLlmMessages(messages: ChatMessage[]): LlmMessage[] {
  */
 export function createAgentTurn(options: AgentOptions = {}): AgentRunner {
   const llm = options.llm ?? createOpenRouterClient()
-  const tools = options.tools ?? createToolRegistry()
+  const tools = options.tools ?? createCommerceToolRegistry()
   const maxRounds = options.maxRounds ?? 5
   const hooks = defaultHooks()
 
   return async function runTurn(input, emit) {
     emit({ type: 'hook', name: 'agent-turn', phase: 'start' })
     try {
-      const messages = toLlmMessages(input.messages)
+      // The coordinator plans before the model runs so the right spokes are
+      // spawned in the right order (identity before order data, etc.).
+      const plan = planTurn(lastUserMessage(input.messages))
+      emit({
+        type: 'plan',
+        intent: plan.intent,
+        spokes: plan.spokes,
+        requiresCustomerIdentification: plan.requiresCustomerIdentification,
+        requiresConfirmation: plan.requiresConfirmation,
+      })
+      const messages = toLlmMessages(input.messages, planGuidance(plan))
 
       for (let round = 0; round < maxRounds; round += 1) {
         for (const hook of hooks) {
