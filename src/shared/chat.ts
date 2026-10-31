@@ -53,3 +53,15 @@ export function limitChatHistory<T>(messages: readonly T[], maxMessages: number 
   if (limit === 0) return []
   return messages.length > limit ? messages.slice(messages.length - limit) : messages.slice()
 }
+
+/** Keep visible history intact while fitting the server's count, text and byte limits. */
+export function buildChatRequest(messages: readonly Pick<ChatMessage, 'role' | 'content'>[]): ChatRequestBody {
+  const history = limitChatHistory(messages)
+    .map(({ role, content }) => ({ role, content: content.slice(0, CHAT_LIMITS.maxMessageLength) }))
+    .filter(({ content }) => content.trim().length > 0)
+  const encoder = new TextEncoder()
+  while (history.length > 1 && encoder.encode(JSON.stringify({ messages: history })).byteLength > CHAT_LIMITS.maxRequestBodyBytes) {
+    history.shift()
+  }
+  return { messages: history }
+}

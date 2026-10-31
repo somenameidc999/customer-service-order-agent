@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { Bubble, Button, TextArea } from 'pixel-retroui'
-import { limitChatHistory, type AgentEvent, type ChatMessage } from '../shared/chat'
+import { buildChatRequest, type AgentEvent } from '../shared/chat'
 
 const ink = '#263f34'
 
@@ -126,12 +126,7 @@ export function ChatPanel() {
     const userMessage: UiMessage = { id: newId(), role: 'user', content: text, activities: [], pending: false, failed: false }
     const assistantId = newId()
     const assistantMessage: UiMessage = { id: assistantId, role: 'assistant', content: '', activities: [], pending: true, failed: false }
-    // The server rejects more than `CHAT_LIMITS.maxMessages` messages, so keep
-    // only the most recent turns; otherwise a long chat is stranded after ~26 turns.
-    const history = limitChatHistory(
-      [...messages.filter((message) => message.content.trim().length > 0), userMessage]
-        .map((message): ChatMessage => ({ id: message.id, role: message.role, content: message.content, createdAt: new Date().toISOString() })),
-    )
+    const request = buildChatRequest([...messages, userMessage])
 
     stickToBottom.current = true
     setMessages((current) => [...current, userMessage, assistantMessage])
@@ -147,7 +142,7 @@ export function ChatPanel() {
       const response = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: history }),
+        body: JSON.stringify(request),
       })
       if (!response.ok) throw new Error(await readError(response))
       if (!response.body) throw new Error('The chat response had no body.')
