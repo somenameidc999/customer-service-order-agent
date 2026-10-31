@@ -291,8 +291,16 @@ export function createShopifyFixtureClient(): ShopifyClient {
       if (!Number.isFinite(Number(amount)) || Number(amount) <= 0) {
         throw new ShopifyClientError('INVALID_INPUT', '"amount" must be a positive number.')
       }
-      if (Number(amount) > total) {
-        throw new ShopifyClientError('INVALID_INPUT', `Refund amount ${amount} exceeds the refundable ${order.total}.`)
+      // Bound by the remaining refundable amount, not just the order total, so a
+      // second refund cannot exceed what is left after prior refunds
+      // (docs/security.md §5.1 and §5.3).
+      const alreadyRefunded = order.refunds.reduce((sum, refund) => sum + Number(refund.amount), 0)
+      const refundable = total - alreadyRefunded
+      if (refundable <= 0) {
+        throw new ShopifyClientError('INVALID_INPUT', `Order ${order.name} has no refundable amount remaining.`)
+      }
+      if (Number(amount) > refundable) {
+        throw new ShopifyClientError('INVALID_INPUT', `Refund amount ${amount} exceeds the refundable ${refundable.toFixed(2)}.`)
       }
       const refund: ShopifyRefund = {
         id: `gid://shopify/Refund/${nextRefundId++}`,
@@ -304,7 +312,7 @@ export function createShopifyFixtureClient(): ShopifyClient {
       }
       refunds.push(refund)
       order.refunds = [...order.refunds, refund]
-      order.financialStatus = Number(amount) >= total ? 'REFUNDED' : 'PARTIALLY_REFUNDED'
+      order.financialStatus = alreadyRefunded + Number(amount) >= total ? 'REFUNDED' : 'PARTIALLY_REFUNDED'
       return { ...refund }
     },
 

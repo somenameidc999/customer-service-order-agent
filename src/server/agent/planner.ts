@@ -34,6 +34,9 @@ const EDIT_VERB = /\b(change|update|edit|cancel|remove|add|swap|correct)\b/i
 const EDIT_TARGET = /\b(address|shipping|item|items|line\s?item|order)\b/i
 const PRODUCT = /\b(product|item|quality|sucks|broken|defect(?:ive)?|damaged|faulty|description|review)\b/i
 const PURCHASE_REFERENCE = /\b(i\s+ordered|i\s+bought|i\s+purchased|my\s+(?:order|purchase))\b/i
+// Destructive order edits always require human approval, not just customer
+// confirmation (docs/security.md §6, docs/agents.md routing summary).
+const DESTRUCTIVE_EDIT = /\b(cancel|remove|delete)\b/i
 
 export function classifyIntent(message: string): CustomerIntent {
   const text = message.trim()
@@ -69,15 +72,19 @@ export function planTurn(message: string): TurnPlan {
         requiresHumanApproval: true,
         summary: 'Identify the customer, read the order, then quote and (after confirmation) refund.',
       }
-    case 'order_edit':
+    case 'order_edit': {
+      const destructive = DESTRUCTIVE_EDIT.test(message)
       return {
         intent,
         spokes: ['customer', 'order'],
         requiresCustomerIdentification: true,
         requiresConfirmation: true,
-        requiresHumanApproval: false,
-        summary: 'Identify the customer, read the order, then apply the confirmed edit.',
+        requiresHumanApproval: destructive,
+        summary: destructive
+          ? 'Identify the customer, read the order, then apply the confirmed edit once a human approves it.'
+          : 'Identify the customer, read the order, then apply the confirmed edit.',
       }
+    }
     case 'product_question':
       return PURCHASE_REFERENCE.test(message)
         ? {
@@ -127,7 +134,9 @@ export function planGuidance(plan: TurnPlan): string {
     plan.requiresConfirmation
       ? 'Before any write, summarize the change, obtain explicit customer confirmation, and pass the confirmationToken and idempotencyKey.'
       : '',
-    plan.requiresHumanApproval ? 'This intent may require human approval before the write executes.' : '',
+    plan.requiresHumanApproval
+      ? 'This action needs explicit human approval before the write executes; do not call the write tool until that approval is recorded.'
+      : '',
     'Do not call a spoke outside this sequence.',
   ].filter((part) => part.length > 0).join(' ')
 }
