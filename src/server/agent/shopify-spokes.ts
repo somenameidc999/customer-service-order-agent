@@ -1,8 +1,11 @@
-import type { ToolDefinition } from './tools.js'
+import type { ToolContext, ToolDefinition } from './tools.js'
+import type { VerifiedIdentity } from './authorization.js'
 import {
   createShopifyFixtureClient,
+  ShopifyClientError,
   type ShopifyClient,
   type ShopifyErrorCode,
+  type ShopifyOrder,
 } from '../shopify/client.js'
 
 /**
@@ -90,6 +93,29 @@ function asCount(value: unknown): number | undefined {
 }
 
 /**
+ * Read the identity proven earlier in this turn, or fail closed. Order/PII
+ * tools must never treat a read as implicitly authorized (docs/security.md §3).
+ */
+function requireIdentity(context: ToolContext | undefined): VerifiedIdentity {
+  const identity = context?.authorization.identity
+  if (!identity) {
+    throw new ShopifyClientError(
+      'UNAUTHORIZED',
+      'Identify the customer with findCustomer (order number plus a matching email or phone) before accessing order or customer data.',
+    )
+  }
+  return identity
+}
+
+/** Reject a read or write whose order does not belong to the identified customer. */
+function requireOwnedOrder(identity: VerifiedIdentity, order: ShopifyOrder): ShopifyOrder {
+  if (order.customerId !== identity.customerId) {
+    throw new ShopifyClientError('UNAUTHORIZED', 'The order does not belong to the identified customer.')
+  }
+  return order
+}
+
+/**
  * Build the tool definitions for every Shopify spoke. The coordinator sees
  * these alongside the built-in tools, and each definition records its owning
  * spoke so the agent can emit `subagent` events.
@@ -112,11 +138,15 @@ export function createShopifySpokeTools(client: ShopifyClient = createShopifyFix
           additionalProperties: false,
         },
       },
-      run: (args) => runWithEvidence(() => client.findCustomer({
-        orderNumber: asString(args.orderNumber, 'orderNumber'),
-        email: optionalString(args.email),
-        phone: optionalString(args.phone),
-      })),
+      run: (args, context) => runWithEvidence(async () => {
+        const result = await client.findCustomer({
+          orderNumber: asString(args.orderNumber, 'orderNumber'),
+          email: optionalString(args.email),
+          phone: optionalString(args.phone),
+        })
+        context?.authorization.identify({ customerId: result.customer.id, orderIds: [result.order.id] })
+        return result
+      }),
     },
     {
       spoke: 'customer',
@@ -130,7 +160,14 @@ export function createShopifySpokeTools(client: ShopifyClient = createShopifyFix
           additionalProperties: false,
         },
       },
-      run: (args) => runWithEvidence(() => client.getCustomer({ customerId: asString(args.customerId, 'customerId') })),
+      run: (args, context) => runWithEvidence(async () => {
+        const identity = requireIdentity(context)
+        const customerId = asString(args.customerId, 'customerId')
+        if (customerId !== identity.customerId) {
+          throw new ShopifyClientError('UNAUTHORIZED', 'The requested customer is not the identified customer.')
+        }
+        return client.getCustomer({ customerId })
+      }),
     },
     {
       spoke: 'product',
@@ -178,7 +215,11 @@ export function createShopifySpokeTools(client: ShopifyClient = createShopifyFix
           additionalProperties: false,
         },
       },
-      run: (args) => runWithEvidence(() => client.getOrder({ orderId: asString(args.orderId, 'orderId') })),
+      run: (args, context) => runWithEvidence(async () => {
+        const identity = requireIdentity(context)
+        const order = await client.getOrder({ orderId: asString(args.orderId, 'orderId') })
+        return requireOwnedOrder(identity, order)
+      }),
     },
     {
       spoke: 'order',
@@ -192,7 +233,11 @@ export function createShopifySpokeTools(client: ShopifyClient = createShopifyFix
           additionalProperties: false,
         },
       },
-      run: (args) => runWithEvidence(() => client.getOrderByNumber({ orderNumber: asString(args.orderNumber, 'orderNumber') })),
+      run: (args, context) => runWithEvidence(async () => {
+        const identity = requireIdentity(context)
+        const order = await client.getOrderByNumber({ orderNumber: asString(args.orderNumber, 'orderNumber') })
+        return requireOwnedOrder(identity, order)
+      }),
     },
     {
       spoke: 'order',
@@ -209,10 +254,14 @@ export function createShopifySpokeTools(client: ShopifyClient = createShopifyFix
           additionalProperties: false,
         },
       },
-      run: (args) => runWithEvidence(() => client.listCustomerOrders({
-        customerId: asString(args.customerId, 'customerId'),
-        limit: asCount(args.limit),
-      })),
+      run: (args, context) => runWithEvidence(async () => {
+        const identity = requireIdentity(context)
+        const customerId = asString(args.customerId, 'customerId')
+        if (customerId !== identity.customerId) {
+          throw new ShopifyClientError('UNAUTHORIZED', 'The requested customer is not the identified customer.')
+        }
+        return client.listCustomerOrders({ customerId, limit: asCount(args.limit) })
+      }),
     },
     {
       spoke: 'order',
@@ -231,12 +280,17 @@ export function createShopifySpokeTools(client: ShopifyClient = createShopifyFix
           additionalProperties: false,
         },
       },
-      run: (args) => runWithEvidence(() => client.updateShippingAddress({
-        orderId: asString(args.orderId, 'orderId'),
-        address: asString(args.address, 'address'),
-        confirmationToken: String(args.confirmationToken ?? ''),
-        idempotencyKey: String(args.idempotencyKey ?? ''),
-      })),
+      run: (args, context) => runWithEvidence(async () => {
+        const identity = requireIdentity(context)
+        const orderId = asString(args.orderId, 'orderId')
+        requireOwnedOrder(identity, await client.getOrder({ orderId }))
+        return client.updateShippingAddress({
+          orderId,
+          address: asString(args.address, 'address'),
+          confirmationToken: String(args.confirmationToken ?? ''),
+          idempotencyKey: String(args.idempotencyKey ?? ''),
+        })
+      }),
     },
     {
       spoke: 'order',
@@ -255,12 +309,17 @@ export function createShopifySpokeTools(client: ShopifyClient = createShopifyFix
           additionalProperties: false,
         },
       },
-      run: (args) => runWithEvidence(() => client.cancelOrder({
-        orderId: asString(args.orderId, 'orderId'),
-        reason: asString(args.reason, 'reason'),
-        confirmationToken: String(args.confirmationToken ?? ''),
-        idempotencyKey: String(args.idempotencyKey ?? ''),
-      })),
+      run: (args, context) => runWithEvidence(async () => {
+        const identity = requireIdentity(context)
+        const orderId = asString(args.orderId, 'orderId')
+        requireOwnedOrder(identity, await client.getOrder({ orderId }))
+        return client.cancelOrder({
+          orderId,
+          reason: asString(args.reason, 'reason'),
+          confirmationToken: String(args.confirmationToken ?? ''),
+          idempotencyKey: String(args.idempotencyKey ?? ''),
+        })
+      }),
     },
     {
       spoke: 'refund',
@@ -274,7 +333,12 @@ export function createShopifySpokeTools(client: ShopifyClient = createShopifyFix
           additionalProperties: false,
         },
       },
-      run: (args) => runWithEvidence(() => client.listOrderRefunds({ orderId: asString(args.orderId, 'orderId') })),
+      run: (args, context) => runWithEvidence(async () => {
+        const identity = requireIdentity(context)
+        const order = await client.getOrder({ orderId: asString(args.orderId, 'orderId') })
+        requireOwnedOrder(identity, order)
+        return client.listOrderRefunds({ orderId: order.id })
+      }),
     },
     {
       spoke: 'refund',
@@ -295,14 +359,19 @@ export function createShopifySpokeTools(client: ShopifyClient = createShopifyFix
           additionalProperties: false,
         },
       },
-      run: (args) => runWithEvidence(() => client.createRefund({
-        orderId: asString(args.orderId, 'orderId'),
-        amount: asString(args.amount, 'amount'),
-        currency: optionalString(args.currency) ?? 'USD',
-        reason: asString(args.reason, 'reason'),
-        confirmationToken: String(args.confirmationToken ?? ''),
-        idempotencyKey: String(args.idempotencyKey ?? ''),
-      })),
+      run: (args, context) => runWithEvidence(async () => {
+        const identity = requireIdentity(context)
+        const orderId = asString(args.orderId, 'orderId')
+        requireOwnedOrder(identity, await client.getOrder({ orderId }))
+        return client.createRefund({
+          orderId,
+          amount: asString(args.amount, 'amount'),
+          currency: optionalString(args.currency) ?? 'USD',
+          reason: asString(args.reason, 'reason'),
+          confirmationToken: String(args.confirmationToken ?? ''),
+          idempotencyKey: String(args.idempotencyKey ?? ''),
+        })
+      }),
     },
   ]
 }

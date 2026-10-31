@@ -17,7 +17,7 @@ export interface ChatMessage {
  */
 export type AgentEvent =
   | { type: 'hook'; name: string; phase: 'start' | 'end'; detail?: string }
-  | { type: 'plan'; intent: string; spokes: string[]; requiresCustomerIdentification: boolean; requiresConfirmation: boolean }
+  | { type: 'plan'; intent: string; spokes: string[]; requiresCustomerIdentification: boolean; requiresConfirmation: boolean; requiresHumanApproval: boolean }
   | { type: 'subagent'; name: string; phase: 'start' | 'end'; detail?: string }
   | {
       type: 'tool_call'

@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { ShopifyClient } from '../shopify/client.js'
+import type { AuthorizationContext } from './authorization.js'
 import { createShopifySpokeTools } from './shopify-spokes.js'
 
 /** A tool exposed to the model, owned by a single spoke (subagent). */
@@ -11,12 +12,23 @@ export interface ToolSpec {
   parameters: Record<string, unknown>
 }
 
+/**
+ * Per-turn execution context. The hub creates a fresh authorization context for
+ * every agent turn so a verified identity never leaks between turns or sessions.
+ */
+export interface ToolContext {
+  authorization: AuthorizationContext
+}
+
 export interface ToolDefinition {
   /** The spoke (subagent) that owns and executes this tool. */
   spoke: string
   spec: ToolSpec
-  /** Execute the tool. Resolves to a short human-readable result. */
-  run: (args: Record<string, unknown>) => Promise<string> | string
+  /**
+   * Execute the tool. Resolves to a short human-readable result. Tools that
+   * touch customer data fail closed when the context carries no identity.
+   */
+  run: (args: Record<string, unknown>, context?: ToolContext) => Promise<string> | string
 }
 
 const docsDirectory = fileURLToPath(new URL('../../../docs/', import.meta.url))
