@@ -9,7 +9,7 @@ import { validateChatBody } from './agent/chat-route.js'
 import { createOpenRouterClient } from './agent/openrouter.js'
 import { createToolRegistry, type ToolDefinition } from './agent/tools.js'
 import type { LlmClient } from './agent/openrouter.js'
-import type { AgentEvent } from '../shared/chat.js'
+import { CHAT_LIMITS, limitChatHistory, buildChatRequest, type AgentEvent } from '../shared/chat.js'
 
 // The client sources use JSX but this test runs without a bundler, so the
 // classic runtime needs a React global before App.tsx is evaluated.
@@ -39,6 +39,68 @@ test('chat body validation rejects empty, oversized and malformed messages', () 
   assert.equal(validateChatBody({ messages: [{ role: 'system', content: 'hi' }] }).ok, false)
   assert.equal(validateChatBody({ messages: [{ role: 'user', content: 'x'.repeat(4001) }] }).ok, false)
   assert.equal(validateChatBody({ messages: new Array(51).fill({ role: 'user', content: 'hi' }) }).ok, false)
+})
+
+test('limitChatHistory keeps a long conversation within the server message limit', () => {
+  const messages = Array.from({ length: 60 }, (_, index) => ({ role: index % 2 === 0 ? 'user' : 'assistant', content: `turn ${index}` }))
+  const limited = limitChatHistory(messages)
+  assert.equal(limited.length, CHAT_LIMITS.maxMessages)
+  // The newest turns survive so the in-progress user message is still sent.
+  assert.deepEqual(limited[limited.length - 1], messages[messages.length - 1])
+  assert.deepEqual(limited[0], messages[messages.length - CHAT_LIMITS.maxMessages])
+})
+
+test('limitChatHistory returns short histories and copies without mutation', () => {
+  const messages = [{ content: 'a' }, { content: 'b' }]
+  const limited = limitChatHistory(messages)
+  assert.deepEqual(limited, messages)
+  assert.notEqual(limited, messages)
+  assert.deepEqual(limitChatHistory(messages, 0), [])
+  assert.deepEqual(limitChatHistory(messages, 1), [{ content: 'b' }])
+})
+
+test('the actual client request keeps the 26th user turn and fits server validation', async () => {
+  const visible = Array.from({ length: 50 }, (_, index) => ({ role: index % 2 === 0 ? 'user' as const : 'assistant' as const, content: `turn ${index}` }))
+  const latest = { role: 'user' as const, content: 'question 26' }
+  const outgoing = buildChatRequest([...visible, latest])
+  assert.equal(outgoing.messages.length, CHAT_LIMITS.maxMessages)
+  assert.deepEqual(outgoing.messages.at(-1), latest)
+  assert.equal(validateChatBody(outgoing).ok, true)
+  assert.equal(visible.length, 50, 'Visible history stays intact')
+  let received: unknown
+  const app = createApp(undefined, { agent: async (input, emit) => { received = input.messages; emit({ type: 'assistant_message', text: 'Still usable' }) } })
+  const body = JSON.stringify(outgoing)
+  const response = await app.request('/api/chat', { method: 'POST', headers: { 'content-type': 'application/json', 'content-length': String(new TextEncoder().encode(body).byteLength) }, body })
+  assert.equal(response.status, 200)
+  assert.match(await response.text(), /Still usable/)
+  assert.deepEqual((received as Array<{ content: string }>).at(-1)?.content, latest.content)
+})
+
+test('long Unicode and escaped chat histories fit the complete UTF-8 JSON body limit', async () => {
+  for (const content of ['😀'.repeat(2000), '\u0001'.repeat(4000)]) {
+    const visible = Array.from({ length: 50 }, (_, index) => ({ role: index % 2 === 0 ? 'user' as const : 'assistant' as const, content }))
+    const latest = { role: 'user' as const, content: 'next question' }
+    const outgoing = buildChatRequest([...visible, latest])
+    const body = JSON.stringify(outgoing), bytes = new TextEncoder().encode(body).byteLength
+    assert.ok(bytes <= CHAT_LIMITS.maxRequestBodyBytes)
+    assert.ok(outgoing.messages.length < CHAT_LIMITS.maxMessages)
+    assert.deepEqual(outgoing.messages.at(-1), latest)
+    assert.equal(validateChatBody(outgoing).ok, true)
+    assert.equal(visible.length, 50)
+    const app = createApp(undefined, { agent: async (_input, emit) => emit({ type: 'assistant_message', text: 'ok' }) })
+    const response = await app.request('/api/chat', { method: 'POST', headers: { 'content-type': 'application/json', 'content-length': String(bytes) }, body })
+    assert.equal(response.status, 200)
+    await response.text()
+  }
+})
+
+test('a long assistant response cannot strand later sends at the per-message limit', () => {
+  const visible = [{ role: 'assistant' as const, content: 'x'.repeat(6000) }, { role: 'user' as const, content: 'Continue' }]
+  const request = buildChatRequest(visible)
+  assert.equal(request.messages[0].content.length, CHAT_LIMITS.maxMessageLength)
+  assert.equal(validateChatBody(request).ok, true)
+  assert.equal(visible[0].content.length, 6000)
+  assert.deepEqual(request.messages.at(-1), visible.at(-1))
 })
 
 test('agent turn streams hooks, a subagent, a tool call and the final message', async () => {
@@ -142,6 +204,7 @@ test('the chat interface renders history, composer and activity affordances', as
   assert.match(html, /aria-label="Chat history"/)
   assert.match(html, /aria-label="Message the agent"/)
   assert.match(html, /chat-composer/)
+  assert.match(html, /class="[^"]*chat-clear[^"]*"[^>]*>Clear</)
 })
 
 test('the greeting submit button stays unique for the browser scenario', async () => {

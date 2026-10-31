@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { Bubble, Button, TextArea } from 'pixel-retroui'
-import type { AgentEvent, ChatMessage } from '../shared/chat'
+import { buildChatRequest, type AgentEvent } from '../shared/chat'
 
 const ink = '#263f34'
 
@@ -126,8 +126,7 @@ export function ChatPanel() {
     const userMessage: UiMessage = { id: newId(), role: 'user', content: text, activities: [], pending: false, failed: false }
     const assistantId = newId()
     const assistantMessage: UiMessage = { id: assistantId, role: 'assistant', content: '', activities: [], pending: true, failed: false }
-    const history = [...messages.filter((message) => message.content.trim().length > 0), userMessage]
-      .map((message): ChatMessage => ({ id: message.id, role: message.role, content: message.content, createdAt: new Date().toISOString() }))
+    const request = buildChatRequest([...messages, userMessage])
 
     stickToBottom.current = true
     setMessages((current) => [...current, userMessage, assistantMessage])
@@ -143,7 +142,7 @@ export function ChatPanel() {
       const response = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: history }),
+        body: JSON.stringify(request),
       })
       if (!response.ok) throw new Error(await readError(response))
       if (!response.body) throw new Error('The chat response had no body.')
@@ -174,6 +173,14 @@ export function ChatPanel() {
     }
   }
 
+  function clearConversation() {
+    if (busy) return
+    setMessages([])
+    setDraft('')
+    setError('')
+    stickToBottom.current = true
+  }
+
   function onKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
     if (event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault()
@@ -185,7 +192,21 @@ export function ChatPanel() {
     <div className="chat-panel">
       <div className="chat-toolbar">
         <span className="chat-toolbar-title"><span className="status-dot" /> AGENT CHAT</span>
-        <span className="chat-toolbar-hint">Enter to send · Shift+Enter for a new line</span>
+        <span className="chat-toolbar-actions">
+          <span className="chat-toolbar-hint">Enter to send · Shift+Enter for a new line</span>
+          <Button
+            type="button"
+            onClick={clearConversation}
+            disabled={busy || messages.length === 0}
+            bg="#f4f2e9"
+            textColor={ink}
+            shadow="#d9c5ad"
+            borderColor={ink}
+            className="button chat-clear"
+          >
+            Clear
+          </Button>
+        </span>
       </div>
 
       <div className="chat-scroll" ref={scrollRef} onScroll={onScroll} role="log" aria-live="polite" aria-label="Chat history">
