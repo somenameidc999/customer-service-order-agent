@@ -36,3 +36,19 @@ The runs used the production coordinator, production Shopify client, confirmatio
 Independent subagents fixed observed failures before retries. Fixes include customer-supplied identity binding, contextual routing, exact requested refund amounts, full remaining-balance refunds, notification consent, pending proposal withdrawal, durable human support, authoritative action status, permission-error stopping, ownership rechecks, and uncertain-write handling. Earlier failed runs remain in local artifacts.
 
 Reproduce with `npm run check`, `npm run eval -- --repeat=3`, then `npm run eval:ui` and `npm run eval:browser`. See [the evaluation guide](evaluations.md). Browser screenshots and raw traces are generated under `artifacts/evaluations/` and are not committed. These results establish the tested controlled-API behavior. Live Shopify scope, gateway, and protected-customer-data validation remain deployment checks.
+
+## Real Shopify test-order verification
+
+Verified on 2026-11-01 against the actual `nate-ce.myshopify.com` development store. Three dedicated orders were created with `test: true`, a USD 1.00 successful Bogus Gateway test payment, an unfulfilled shipping-required line item, and notifications disabled.
+
+| Behavior | Shopify order | Persisted result |
+| --- | --- | --- |
+| Refund | #1093 (`7412011565315`) | USD 0.01 refunded; refund `976050913539`; test payment transaction `SUCCESS`; USD 0.99 remains refundable. |
+| Cancellation | #1094 (`7412011630851`) | `cancelledAt: 2026-11-01T18:09:44Z`, reason `CUSTOMER`; no refund; financial status remains `PAID`. |
+| Address change | #1095 (`7412011663619`) | `123 Evaluation Avenue`, `Suite 8`, Portland, OR 97201, US saved; original customer name preserved. |
+
+Each request ran through the real model and React chat interface. The evaluator verified `findCustomer` ran first, reviewed the generated card, and confirmed through the actual UI. Refund and cancellation included operator approval. No controlled Shopify transport was used.
+
+A separate process made fresh, direct Shopify GraphQL reads at `2026-11-01T18:10:00Z`. Those reads confirmed all three results. The application's persistent SQLite journal independently recorded all three actions as succeeded. Raw responses, prompts, screenshots, and journal evidence remain under local `artifacts/live-shopify/`.
+
+The first cancellation attempt performed no Shopify mutation because “Do not refund the captured payment” incorrectly withdrew the positive cancellation request. An independent subagent fixed clause-scoped action interpretation. The exact original prompt then passed against the same untouched test order. Three regression tests cover the original request, inverse refund/cancellation wording, and later revocation. The complete check passes 133 tests, all type checks, and the production build. Test orders remain available for inspection; no real customer payment was used.
