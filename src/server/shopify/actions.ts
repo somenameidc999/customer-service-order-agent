@@ -56,6 +56,8 @@ export class ShopifyActionStore {
       if (!['expired','cancelled','failed'].includes(view.status)) return view
       this.db.prepare('UPDATE actions SET fingerprint=? WHERE id=?').run(`${fingerprint}:${previous.id}`, previous.id)
     }
+    // A revised amount or operation withdraws the previous consent request.
+    this.cancelPending(input.sessionId, input.orderId)
     const id = randomUUID()
     const view: ShopifyActionView = { id, kind: input.payload.kind, orderName: input.orderName,
       title: input.title, details: input.details, requiresApproval: input.payload.kind !== 'shipping_address',
@@ -103,10 +105,31 @@ export class ShopifyActionStore {
   }
 
   finish(action: StoredShopifyAction, status: ShopifyActionStatus, result?: ShopifyActionView['result'], error?: string): StoredShopifyAction {
-    const updated = { ...action, view: { ...action.view, status, result, error } }
-    this.db.prepare('UPDATE actions SET status=?, document=? WHERE id=?').run(status, JSON.stringify(updated), action.id)
+    const row = this.db.prepare('SELECT document FROM actions WHERE id=? AND session_id=?').get(action.id, action.sessionId)
+    if (!row) throw new ActionError('This action was not found in this chat.', 404)
+    const current = JSON.parse(String(row.document)) as StoredShopifyAction
+    const terminal: ShopifyActionStatus[] = ['succeeded', 'failed', 'cancelled', 'expired']
+    // A late network response or status check cannot overwrite a final result.
+    if (terminal.includes(current.view.status)) return current
+    if (current.view.status !== action.view.status && status !== 'succeeded') return current
+    if (current.view.status !== 'pending' && ['cancelled', 'expired'].includes(status)) return current
+    const updated = { ...current, view: { ...current.view, status, result, error } }
+    const changed = this.db.prepare('UPDATE actions SET status=?, document=? WHERE id=? AND status=?')
+      .run(status, JSON.stringify(updated), action.id, current.view.status)
+    if (changed.changes !== 1) return this.get(action.id, action.sessionId)
     this.audit(action.id, status, false)
     return updated
+  }
+
+  /** Withdraw only unexecuted proposals. Executing or uncertain writes stay blocked. */
+  cancelPending(sessionId: string, orderId?: string): ShopifyActionView[] {
+    const rows = orderId
+      ? this.db.prepare("SELECT document FROM actions WHERE session_id=? AND order_id=? AND status='pending'").all(sessionId, orderId)
+      : this.db.prepare("SELECT document FROM actions WHERE session_id=? AND status='pending'").all(sessionId)
+    return rows.map((row) => {
+      const action = JSON.parse(String(row.document)) as StoredShopifyAction
+      return this.finish(action, 'cancelled').view
+    })
   }
 
   cancel(id: string, sessionId: string): ShopifyActionView {

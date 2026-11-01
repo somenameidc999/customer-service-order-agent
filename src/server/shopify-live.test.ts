@@ -165,7 +165,7 @@ test('default agent registry reaches Shopify and does not retain verification ac
         : round === 3 ? { id: 'order', name: 'getOrder', argumentsText: JSON.stringify({ orderId: rawOrder.id }) } : null
       return { content: call ? null : 'Finished', toolCalls: call ? [call] : [] }
     } } })
-    const input = { messages: [{ id: 'm1', role: 'user' as const, content: 'Check my order', createdAt: new Date().toISOString() }] }
+    const input = { messages: [{ id: 'm1', role: 'user' as const, content: 'Check order #42. My email is customer@example.com.', createdAt: new Date().toISOString() }] }
     await turn(input, (event) => events.push(event))
     await turn(input, (event) => events.push(event))
     const outcomes = events.filter((event) => event.type === 'tool_call' && event.phase === 'end')

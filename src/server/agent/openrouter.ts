@@ -20,7 +20,7 @@ export interface LlmCompletion {
 }
 
 export interface LlmClient {
-  complete(input: { messages: LlmMessage[]; tools: ToolSpec[]; signal?: AbortSignal }): Promise<LlmCompletion>
+  complete(input: { messages: LlmMessage[]; tools: ToolSpec[]; signal?: AbortSignal; requiredTool?: string }): Promise<LlmCompletion>
 }
 
 export const DEFAULT_MODEL = 'openai/gpt-4o-mini'
@@ -43,7 +43,7 @@ export function createOpenRouterClient(options: { model?: string; baseUrl?: stri
   const baseUrl = (options.baseUrl ?? process.env.OPENROUTER_BASE_URL?.trim() ?? OPENROUTER_BASE_URL).replace(/\/$/, '')
 
   return {
-    async complete({ messages, tools, signal }) {
+    async complete({ messages, tools, signal, requiredTool }) {
       const key = apiKey()
       if (!key) {
         throw new Error('OPENROUTER_API_KEY is not configured on the server, so the agent cannot reply.')
@@ -61,13 +61,14 @@ export function createOpenRouterClient(options: { model?: string; baseUrl?: stri
           model,
           messages,
           ...(tools.length > 0 ? { tools: tools.map((tool) => ({ type: 'function', function: tool })) } : {}),
+          ...(requiredTool ? { tool_choice: { type: 'function', function: { name: requiredTool } } } : {}),
         }),
         signal: signal ?? AbortSignal.timeout(60000),
       })
 
       if (!response.ok) {
-        const detail = await response.text().catch(() => '')
-        throw new Error(`OpenRouter request failed (${response.status}). ${detail.slice(0, 300)}`.trim())
+        await response.body?.cancel()
+        throw new Error(`OpenRouter request failed (${response.status}). Please retry later or request human support.`)
       }
 
       const payload = await response.json() as {
