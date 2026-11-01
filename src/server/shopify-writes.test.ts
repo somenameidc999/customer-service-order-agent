@@ -116,7 +116,7 @@ test('the authorized agent prepares a refund card without executing the write', 
         return { content: call ? null : 'Review the confirmation card.', toolCalls: call ? [call] : [] }
       },
     } })
-    await turn({ sessionId: 'session-1', messages: [{ id: 'request', role: 'user', content: 'Refund my order', createdAt: new Date().toISOString() }] }, (event) => events.push(event))
+    await turn({ sessionId: 'session-1', messages: [{ id: 'request', role: 'user', content: 'Refund order #42. My email is owner@example.com.', createdAt: new Date().toISOString() }] }, (event) => events.push(event))
     const confirmation = events.find((event) => event.type === 'confirmation')
     assert.equal(confirmation?.type === 'confirmation' && confirmation.action.kind, 'refund')
     assert.equal(confirmation?.type === 'confirmation' && confirmation.action.status, 'pending')
@@ -240,7 +240,7 @@ test('a chat proposal is bound to the server cookie and executes through its con
   })
   try {
     const response = await app.request('/api/chat', { method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ messages: [{ role: 'user', content: 'Refund my order' }], sessionId: 'forged-session' }) })
+      body: JSON.stringify({ messages: [{ role: 'user', content: 'Refund order #42. My email is owner@example.com.' }], sessionId: 'forged-session' }) })
     const cookie = response.headers.get('set-cookie')!.split(';')[0]
     assert.match(cookie, /^order_chat=[a-f0-9]{64}$/)
     const events = (await response.text()).split('\n\n').filter(Boolean).map((frame) => JSON.parse(frame.slice(6)))

@@ -161,3 +161,13 @@ are implemented in `src/server/shopify/`. The remaining roadmap is documented se
 - [React](https://react.dev/)
 - [RetroUI](https://retroui.io/) · [pixel-retroui source](https://github.com/Dksie09/RetroUI)
 - [Vite](https://vite.dev/)
+
+## Agent evaluations
+
+Run `npm run check` for offline safeguard tests. Run `npm run eval` with an
+`OPENROUTER_API_KEY` for all 22 behavior scenarios using the configured model and
+the production Shopify client against a controlled API. Run `npm run eval:ui`
+and then `npm run eval:browser` for actual chat prompts, confirmation-card
+interactions, final-state assertions, and screenshots. Evaluation mode does not
+change live Shopify orders. See [the evaluation guide](docs/evaluations.md) for
+repeats, evidence, failure handling, and the local human support inbox.

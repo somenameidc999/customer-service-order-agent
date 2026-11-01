@@ -13,6 +13,11 @@ export type CustomerIntent =
   | 'order_edit'
   | 'product_question'
   | 'general'
+  | 'human_request'
+  | 'withdraw_request'
+  | 'unsupported_edit'
+  | 'action_status'
+  | 'cancel_refund'
 
 export interface TurnPlan {
   intent: CustomerIntent
@@ -28,7 +33,7 @@ export interface TurnPlan {
   summary: string
 }
 
-const REFUND = /\b(refund|refunds|money\s+back|reimburse(?:ment)?|charge\s?back)\b/i
+const REFUND = /\b(refund|refunds|money\s+back|reimburse(?:ment)?|charge\s?back|charged\s+(?:me\s+)?twice|double[- ]charged|duplicate\s+charge)\b/i
 const ORDER_STATUS = /\b(ready|where|status|track|tracking|shipped|shipping|delivered|delivery|arriv(?:e|ed|ing)|eta)\b/i
 const EDIT_VERB = /\b(change|update|edit|cancel|remove|add|swap|correct)\b/i
 const EDIT_TARGET = /\b(address|shipping|item|items|line\s?item|order)\b/i
@@ -40,6 +45,11 @@ const DESTRUCTIVE_EDIT = /\b(cancel|remove|delete)\b/i
 
 export function classifyIntent(message: string): CustomerIntent {
   const text = message.trim()
+  if ((/^\s*(?:(?:an?|the)\s+)?agent(?:\s+please)?[.!]?\s*$/i.test(text) || /\b(?:speak|talk|connect|transfer)\b.{0,25}\b(?:agent|person)\b/i.test(text) || /\b(?:human|real person|representative|supervisor|support agent|speak to someone|talk to someone)\b/i.test(text)) && !/\b(?:no|not|don't|do not) (?:need|want) (?:a )?human\b/i.test(text)) return 'human_request'
+  if (/^\s*(?:please\s+)?(?:stop|wait|hold on|forget it|cancel that|cancel the request)(?:\s+please)?[.!]?\s*$/i.test(text) || /\b(?:never ?mind|stop (?:the |my |this )?(?:refund|cancellation|order change)|cancel (?:the |my |this )?(?:refund request|cancellation request|request|proposal)|(?:do not|don't|don’t) (?:want to |wish to )?(?:cancel|refund|change|update|edit)|(?:don't|do not|don’t) (?:want|need) (?:a )?refund|no longer (?:want|need)(?: to)? (?:a )?(?:refund|cancel|change)|hold off|leave (?:it|the order) (?:alone|unchanged))\b/i.test(text)) return 'withdraw_request'
+  if (/\b(?:did|has|is|was)\b.*\b(?:refund|cancellation|address|change)\b.*\b(?:go through|complete|completed|processed|succeed|succeeded|saved|done|pending)\b|\b(?:refund|cancellation|action) status\b|\bcheck (?:the |my )?(?:action|refund|cancellation)\b/i.test(text)) return 'action_status'
+  if (EDIT_VERB.test(text) && /\b(?:quantity|quantities|discount|line items?|products?|size|color|colour|two more|more items)\b/i.test(text) && !/\b(?:shipping|address)\b/i.test(text)) return 'unsupported_edit'
+  if (REFUND.test(text) && /\bcancel\b/i.test(text)) return 'cancel_refund'
   if (REFUND.test(text)) return 'refund_request'
   if (EDIT_VERB.test(text) && EDIT_TARGET.test(text)) return 'order_edit'
   if (ORDER_STATUS.test(text)) return 'order_status'
@@ -51,9 +61,32 @@ export function classifyIntent(message: string): CustomerIntent {
  * Build the spoke plan for one customer message. The order encodes the hub's
  * sequencing rules: identity before order data, and order data before a write.
  */
-export function planTurn(message: string): TurnPlan {
-  const intent = classifyIntent(message)
+export function planTurn(message: string, history: readonly { role: string; content: string }[] = []): TurnPlan {
+  let intent = classifyIntent(message)
+  // A reply containing identifiers continues the most recent customer task. Never
+  // infer authorization from history; findCustomer must still run in this turn.
+  if (intent === 'general' && /(?:#[a-z0-9-]+|[\w.+-]+@[\w.-]+\.[a-z]{2,}|\b(?:yes|please|that one|go ahead)\b|\$\s*-?\d|\b(?:USD|CAD|EUR|GBP|JPY)\s*\d|\d{4,})/i.test(message)) {
+    const users = history.filter((entry) => entry.role === 'user' && entry.content !== message)
+    for (const previous of users.slice().reverse()) {
+      const prior = classifyIntent(previous.content)
+      if (prior !== 'general') { intent = prior; break }
+    }
+  }
   switch (intent) {
+    case 'human_request':
+    case 'withdraw_request':
+    case 'unsupported_edit':
+    case 'action_status':
+      return { intent, spokes: [], requiresCustomerIdentification: false, requiresConfirmation: false,
+        requiresHumanApproval: intent === 'human_request', summary: intent === 'human_request'
+          ? 'Queue the conversation for human support and stop automated changes.'
+          : intent === 'withdraw_request' ? 'Withdraw pending proposals without changing Shopify.'
+          : intent === 'action_status' ? 'Read the session-bound action status; never repeat the mutation.'
+          : 'Explain unsupported item, quantity and discount edits; offer human support.' }
+    case 'cancel_refund':
+      return { intent, spokes: ['customer', 'order', 'refund'], requiresCustomerIdentification: true,
+        requiresConfirmation: true, requiresHumanApproval: true,
+        summary: 'Identify the customer, propose cancellation first, then handle the separate refund after cancellation is confirmed.' }
     case 'order_status':
       return {
         intent,
@@ -121,6 +154,8 @@ export function planTurn(message: string): TurnPlan {
  * of guessing.
  */
 export function planGuidance(plan: TurnPlan): string {
+  if (plan.intent === 'action_status') return 'Call getActionStatus to read and refresh the recorded action outcome. Do not create another action. Status belongs to this session and needs no new order lookup.'
+  if (plan.intent === 'cancel_refund') return 'The customer requested cancellation AND a refund. Identify the customer first. Prepare only the cancellation proposal now. Explain captured payments are not refunded by cancellation; the refund is a separate step after cancellation is confirmed. Do not prepare two conflicting proposals. Never claim either operation is complete from a proposal.'
   if (plan.spokes.length === 0) {
     return 'Hub routing for this turn: no Shopify spoke is required. Answer directly.'
   }

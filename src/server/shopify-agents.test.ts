@@ -121,8 +121,9 @@ test('destructive order edits require human approval, non-destructive edits do n
   assert.match(planGuidance(cancel), /human approval/)
 
   const removeItem = planTurn('Please remove the line item from my order')
-  assert.equal(removeItem.intent, 'order_edit')
-  assert.equal(removeItem.requiresHumanApproval, true)
+  assert.equal(removeItem.intent, 'unsupported_edit')
+  assert.equal(removeItem.requiresConfirmation, false)
+  assert.deepEqual(removeItem.spokes, [])
 
   const address = planTurn('Update my shipping address')
   assert.equal(address.intent, 'order_edit')
@@ -284,7 +285,7 @@ test('an agent turn emits the plan and spawns spokes in the planned order', asyn
   const runTurn = createAgentTurn({ llm, tools: createCommerceToolRegistry(createShopifyFixtureClient()) })
 
   await runTurn(
-    { messages: [{ id: 'm1', role: 'user', content: 'Is my order ready?', createdAt: new Date().toISOString() }] },
+    { messages: [{ id: 'm1', role: 'user', content: 'Is my order ready? Order #1001, email ada@example.com.', createdAt: new Date().toISOString() }] },
     (event) => events.push(event),
   )
 
@@ -314,7 +315,7 @@ test('an agent turn blocks an order read attempted before identification', async
   const runTurn = createAgentTurn({ llm })
 
   await runTurn(
-    { messages: [{ id: 'm1', role: 'user', content: 'Is my order ready?', createdAt: new Date().toISOString() }] },
+    { messages: [{ id: 'm1', role: 'user', content: 'Is my order ready? Order #1001, email ada@example.com.', createdAt: new Date().toISOString() }] },
     (event) => events.push(event),
   )
 

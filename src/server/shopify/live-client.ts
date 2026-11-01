@@ -168,7 +168,19 @@ export function createShopifyLiveClient(options: ShopifyLiveClientOptions = {}) 
   async function readOrder(id: string): Promise<RawOrder> {
     const data = await query<{ order: RawOrder | null }>(`query Order($id: ID!) { order(id: $id) { ${ORDER_FIELDS} } }`, { id })
     if (!data.order) throw new ShopifyClientError('NOT_FOUND', 'Shopify did not find this order.')
+    if (data.order.id !== id || typeof data.order.name !== 'string' || !Array.isArray(data.order.lineItems?.nodes) || !Array.isArray(data.order.refunds) || !data.order.totalPriceSet?.shopMoney) throw new ShopifyClientError('API_ERROR', 'Shopify returned incomplete order data.')
     return data.order
+  }
+
+  async function verifiedOrder(id: string): Promise<RawOrder> {
+    const owner = requireOrder(id)
+    const raw = await readOrder(id)
+    if (raw.customer?.id !== owner) {
+      verifiedOrders.delete(id)
+      verifiedOrderNames.delete(orderNumber(raw.name))
+      throw new ShopifyClientError('UNAUTHORIZED', 'The order owner changed. Verify the customer again.')
+    }
+    return raw
   }
 
   async function lookupOrder(number: string): Promise<OrderIdentity> {
@@ -176,6 +188,7 @@ export function createShopifyLiveClient(options: ShopifyLiveClientOptions = {}) 
       `query OrderByNumber($query: String!) { orders(first: 20, query: $query) { nodes { id name email phone customer { ${CUSTOMER_FIELDS} } } pageInfo { hasNextPage } } }`,
       { query: `name:${quoted(number.replace(/^#/, ''))}` },
     )
+    if (!Array.isArray(data.orders?.nodes) || !data.orders.pageInfo) throw new ShopifyClientError('API_ERROR', 'Shopify returned an incomplete order lookup.')
     const matches = data.orders.nodes.filter((entry) => orderNumber(entry.name) === orderNumber(number))
     if (matches.length > 1 || data.orders.pageInfo.hasNextPage) {
       throw new ShopifyClientError('AMBIGUOUS', 'Shopify returned multiple possible orders. Please confirm the full order number.')
@@ -211,10 +224,12 @@ export function createShopifyLiveClient(options: ShopifyLiveClientOptions = {}) 
         (normalizedPhone && raw.phone?.replace(/\D/g, '') === normalizedPhone))) {
         throw new ShopifyClientError('UNAUTHORIZED', 'The order and contact details could not be verified.')
       }
+      const full = await readOrder(raw.id)
+      if (full.customer?.id !== raw.customer.id || !((normalizedEmail && full.email?.toLowerCase() === normalizedEmail) || (normalizedPhone && full.phone?.replace(/\D/g, '') === normalizedPhone))) throw new ShopifyClientError('UNAUTHORIZED', 'The order owner or contact details changed. Verify the customer again.')
       verifiedCustomers.add(raw.customer.id)
       verifiedOrders.set(raw.id, raw.customer.id)
       verifiedOrderNames.set(orderNumber(raw.name), raw.id)
-      return { customer: customer(raw.customer), order: order(await readOrder(raw.id)) }
+      return { customer: customer(raw.customer), order: order(full) }
     },
     async getCustomer({ customerId }) {
       requireCustomer(required(customerId, 'customerId'))
@@ -224,12 +239,12 @@ export function createShopifyLiveClient(options: ShopifyLiveClientOptions = {}) 
     },
     async getOrder({ orderId }) {
       requireOrder(required(orderId, 'orderId'))
-      return order(await readOrder(orderId))
+      return order(await verifiedOrder(orderId))
     },
     async getOrderByNumber({ orderNumber: number }) {
       const id = verifiedOrderNames.get(orderNumber(required(number, 'orderNumber')))
       if (!id) throw new ShopifyClientError('UNAUTHORIZED', 'Verify this order with its order number and matching email or phone first.')
-      return order(await readOrder(id))
+      return order(await verifiedOrder(id))
     },
     async listCustomerOrders({ customerId, limit }) {
       requireCustomer(required(customerId, 'customerId'))
@@ -250,7 +265,7 @@ export function createShopifyLiveClient(options: ShopifyLiveClientOptions = {}) 
     },
     async listOrderRefunds({ orderId }) {
       requireOrder(required(orderId, 'orderId'))
-      return (await readOrder(orderId)).refunds.map((entry) => refund(entry, orderId))
+      return (await verifiedOrder(orderId)).refunds.map((entry) => refund(entry, orderId))
     },
     ...writes,
   }

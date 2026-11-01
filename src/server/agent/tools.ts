@@ -4,6 +4,9 @@ import { fileURLToPath } from 'node:url'
 import type { ShopifyClient } from '../shopify/client.js'
 import { createShopifyLiveClient } from '../shopify/live-client.js'
 import type { AuthorizationContext } from './authorization.js'
+import { getShopifyActionStore, type ShopifyActionStore, type StoredShopifyAction } from '../shopify/actions.js'
+import type { ActionOutcome } from '../shopify/write-client.js'
+import { getHumanSupportStore, type HumanSupportStore } from './handoff.js'
 import { createShopifySpokeTools } from './shopify-spokes.js'
 
 /** A tool exposed to the model, owned by a single spoke (subagent). */
@@ -139,7 +142,47 @@ export function createToolRegistry(definitions: ToolDefinition[] = toolDefinitio
  * The hub's full tool set: built-in utilities plus every Shopify spoke.
  * Application calls use live Shopify data. Tests must inject their own client.
  */
-export function createCommerceToolRegistry(client?: ShopifyClient, context?: { sessionId?: string }): ToolRegistry {
-  client ??= createShopifyLiveClient({ sessionId: context?.sessionId })
-  return createToolRegistry([...toolDefinitions, ...createShopifySpokeTools(client)])
+export interface CommerceToolContext {
+  sessionId?: string
+  actions?: ShopifyActionStore
+  handoffs?: HumanSupportStore
+}
+
+export function createCommerceToolRegistry(client?: ShopifyClient, context: CommerceToolContext = {}): ToolRegistry {
+  client ??= createShopifyLiveClient({ sessionId: context.sessionId, actions: context.actions })
+  const commerce = client
+  const supportTools: ToolDefinition[] = [
+    {
+      spoke: 'support',
+      spec: { name: 'requestHuman', description: 'Queue a request in the local human support inbox, awaiting staff pickup. This is not a live transfer. Stop automated changes when the customer asks for a human.',
+        parameters: { type: 'object', properties: { summary: { type: 'string', description: 'Concise customer request and relevant order reference. Do not include credentials or full payment data.' } }, required: ['summary'], additionalProperties: false } },
+      run: (args) => {
+        if (!context.sessionId) throw new Error('A chat session is required for human support.')
+        const cancelled = (context.actions ?? getShopifyActionStore()).cancelPending(context.sessionId)
+        const request = (context.handoffs ?? getHumanSupportStore()).enqueue(context.sessionId, String(args.summary ?? 'Customer requested human support.'))
+        return JSON.stringify({ request, withdrawnProposalIds: cancelled.map((action) => action.id), message: 'Queued in the local human support inbox, awaiting staff pickup. No live transfer has occurred.' })
+      },
+    },
+    {
+      spoke: 'support',
+      spec: { name: 'getActionStatus', description: 'Read actions from this chat session and refresh uncertain or processing results from Shopify. Use for “did it go through?” Never creates another mutation.',
+        parameters: { type: 'object', properties: { actionId: { type: 'string', description: 'Optional action reference. Omit to inspect recent actions in this chat.' } }, additionalProperties: false } },
+      run: async (args) => {
+        if (!context.sessionId) throw new Error('A chat session is required to check action status.')
+        const store = context.actions ?? getShopifyActionStore()
+        const views = typeof args.actionId === 'string' ? [store.get(args.actionId, context.sessionId).view] : store.list(context.sessionId)
+        const checker = commerce as ShopifyClient & { checkAction?: (action: StoredShopifyAction) => Promise<ActionOutcome> }
+        const actions = []
+        for (const view of views) {
+          if (checker.checkAction && ['executing', 'processing', 'unknown'].includes(view.status)) {
+            const action = store.get(view.id, context.sessionId)
+            const outcome = await checker.checkAction(action)
+            actions.push(store.finish(action, outcome.status, outcome.result).view)
+          } else actions.push(view)
+        }
+        return JSON.stringify({ actions, message: actions.length ? 'These are recorded action results. Pending means not executed; processing and unknown do not prove completion.' : 'There are no recorded actions in this chat.' })
+      },
+    },
+  ]
+  return createToolRegistry([...toolDefinitions, ...createShopifySpokeTools(commerce), ...supportTools])
 }

@@ -17,7 +17,11 @@ export function registerActionRoutes(app: Hono, options: ActionRouteOptions = {}
 
   app.post('/api/actions/:id/:operation', async (c) => {
     const origin = c.req.header('origin')
-    if (origin && new URL(origin).host !== new URL(c.req.url).host) return c.json({ error: 'Confirm actions from this app only.' }, 403)
+    if (origin) {
+      try {
+        if (new URL(origin).origin !== new URL(c.req.url).origin) return c.json({ error: 'Confirm actions from this app only.' }, 403)
+      } catch { return c.json({ error: 'Confirm actions from this app only.' }, 403) }
+    }
     if (!c.req.header('content-type')?.startsWith('application/json')) return c.json({ error: 'Use a JSON action request.' }, 400)
     let body: unknown
     try { body = await c.req.json() } catch { return c.json({ error: 'Provide a valid action request.' }, 400) }

@@ -98,10 +98,14 @@ function equalAddress(actual: WriteState['shippingAddress'], desired: ShippingAd
   return Object.entries(desired).every(([key, value]) => trim(String(key === 'countryCode' ? actual.countryCodeV2 : actual[key as keyof ShippingAddress] ?? '')).toUpperCase() === value.trim().toUpperCase())
 }
 
-function refundOutcome(record: RefundRecord): ActionOutcome {
+function refundOutcome(record: RefundRecord, expected: { amount: string; currency: string }): ActionOutcome {
+  if (typeof record?.id !== 'string' || !Array.isArray(record.transactions?.nodes) || !record.totalRefundedSet?.presentmentMoney) unknown('Shopify returned an incomplete refund record. Check Shopify before retrying.')
   const statuses = record.transactions.nodes.map((entry) => entry.status)
   const money = record.totalRefundedSet.presentmentMoney
-  if (statuses.some((status) => ['FAILURE','ERROR'].includes(status))) return { status: 'failed', result: { shopifyId: record.id, message: 'Shopify created the refund record, but the payment gateway reported a failure. Check the refund in Shopify before retrying.' } }
+  try {
+    if (money.currencyCode !== expected.currency || moneyUnits(money.amount, expected.currency) !== moneyUnits(expected.amount, expected.currency)) unknown('Shopify has not confirmed the exact refund amount and currency. Check Shopify before retrying.')
+  } catch { unknown('Shopify has not confirmed the exact refund amount and currency. Check Shopify before retrying.') }
+  if (statuses.some((status) => ['FAILURE','ERROR'].includes(status))) return { status: 'unknown', result: { shopifyId: record.id, message: 'Shopify created the refund record, but the payment gateway reported a failure. Some payment transactions may have succeeded. A human must review the refund in Shopify before another refund is attempted.' } }
   const done = statuses.length > 0 && statuses.every((status) => status === 'SUCCESS')
   return { status: done ? 'succeeded' : 'processing', result: { shopifyId: record.id,
     message: done ? `Shopify processed a refund of ${money.amount} ${money.currencyCode}.` : `Shopify accepted the refund of ${money.amount} ${money.currencyCode}. Payment processing is pending.` } }
@@ -114,11 +118,12 @@ export function createShopifyWrites(options: WriteOptions): Pick<ShopifyClient, 
   async function state(id: string, refund = false): Promise<WriteState> {
     const result = await options.query<{ order: WriteState | null }>(WRITE_STATE_QUERY, { id, refund })
     if (!result.order) throw new ShopifyClientError('NOT_FOUND', 'Shopify did not find this order.')
+    if (result.order.id !== id || typeof result.order.updatedAt !== 'string' || !Array.isArray(result.order.refunds) || typeof result.order.displayFulfillmentStatus !== 'string') throw new ShopifyClientError('API_ERROR', 'Shopify returned an incomplete order state.')
     return result.order
   }
 
-  function editable(raw: WriteState): void {
-    if (raw.cancelledAt || raw.displayFinancialStatus === 'VOIDED' || raw.displayFinancialStatus === 'REFUNDED') invalid('This order is cancelled, voided, or fully refunded and cannot be edited.')
+  function editable(raw: WriteState, cancellation = false): void {
+    if (raw.cancelledAt || raw.displayFinancialStatus === 'VOIDED' || (!cancellation && raw.displayFinancialStatus === 'REFUNDED')) invalid('This order is cancelled, voided, or fully refunded and cannot be edited.')
     if (raw.displayFulfillmentStatus !== 'UNFULFILLED') invalid('Only an unfulfilled order can be changed or cancelled through this chat.')
   }
 
@@ -127,7 +132,7 @@ export function createShopifyWrites(options: WriteOptions): Pick<ShopifyClient, 
     if (!suggestion) invalid('Shopify could not calculate the refundable amount for this order.')
     if (currency !== raw.presentmentCurrencyCode || suggestion.maximumRefundableSet.presentmentMoney.currencyCode !== currency) invalid('The refund must use the order payment currency.')
     let remaining = moneyUnits(amount, currency)
-    if (raw.cancelledAt || raw.displayFinancialStatus === 'VOIDED') invalid('This order is cancelled or voided. Review its payment state in Shopify before refunding.')
+    if (raw.displayFinancialStatus === 'VOIDED') invalid('This order is voided. Review its payment state in Shopify before refunding.')
     if (remaining <= 0n || remaining > moneyUnits(suggestion.maximumRefundableSet.presentmentMoney.amount, currency)) invalid('The refund amount must be positive and cannot exceed the remaining refundable balance.')
     const days = process.env.REFUND_WINDOW_DAYS
     if (days && (!/^\d+$/.test(days) || Date.now() - Date.parse(raw.createdAt) > Number(days) * 86400000)) invalid('The order is outside the configured refund window.')
@@ -196,7 +201,7 @@ export function createShopifyWrites(options: WriteOptions): Pick<ShopifyClient, 
       return { kind: 'shipping_address', address: { firstName: raw.shippingAddress?.firstName ?? '', lastName: raw.shippingAddress?.lastName ?? '', address2: '', ...(raw.shippingAddress?.phone ? { phone: raw.shippingAddress.phone } : {}), ...(raw.shippingAddress?.company ? { company: raw.shippingAddress.company } : {}), ...desired } }
     }),
     cancelOrder: ({ orderId, reason, notifyCustomer = false }) => prepare(orderId, (raw) => {
-      editable(raw)
+      editable(raw, true)
       const normalized = reason.toUpperCase()
       if (!['CUSTOMER','DECLINED','FRAUD','INVENTORY','STAFF','OTHER'].includes(normalized)) invalid('Choose a valid cancellation reason.')
       return { kind: 'cancel_order', reason: normalized, notifyCustomer }
@@ -213,9 +218,9 @@ export function createShopifyWrites(options: WriteOptions): Pick<ShopifyClient, 
             allowOverRefunding: false, transactions },
         })
         if (!data.refundCreate?.refund || !Array.isArray(data.refundCreate.userErrors)) unknown('The refund response was incomplete. Check Shopify before retrying.')
-        return refundOutcome(data.refundCreate.refund)
+        return refundOutcome(data.refundCreate.refund, payload)
       }
-      editable(raw)
+      editable(raw, payload.kind === 'cancel_order')
       if (payload.kind === 'shipping_address') {
         const { countryCode, ...fields } = payload.address
         const data = await options.query<{ orderUpdate: { order: WriteState | null; userErrors: unknown[] } }>(ADDRESS_MUTATION, {
@@ -235,7 +240,7 @@ export function createShopifyWrites(options: WriteOptions): Pick<ShopifyClient, 
       const payload = action.payload
       if (payload.kind === 'refund') {
         const record = raw.refunds.find((entry) => entry.note?.includes(`[agent-action:${action.id}]`))
-        if (record) return refundOutcome(record)
+        if (record) return refundOutcome(record, payload)
       } else if (payload.kind === 'shipping_address' && equalAddress(raw.shippingAddress, payload.address)) {
         return { status: 'succeeded', result: { shopifyId: raw.id, message: `Shopify confirms the updated shipping address on order ${raw.name}.` } }
       } else if (payload.kind === 'cancel_order' && raw.cancelledAt) {
