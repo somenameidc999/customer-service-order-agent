@@ -7,6 +7,7 @@ export type AgentEmitter = (event: AgentEvent) => void
 
 export interface AgentTurnInput {
   messages: ChatMessage[]
+  sessionId?: string
 }
 
 /** Shape the chat route depends on; injectable so tests stay offline. */
@@ -28,6 +29,14 @@ const SYSTEM_PROMPT = [
   'get_server_time for date or time questions, calculate for arithmetic, and search_docs for',
   'questions about how this application or agent works.',
   'Never disclose order or customer data before the customer has been identified.',
+  'Every product, price, availability, customer and order claim must come from a successful tool result in this turn.',
+  'Never invent products, prices, order details, or successful actions. If a tool fails, explain the failure plainly.',
+  'If a search returns no matches, say no matching products were found. Do not fill gaps with examples.',
+  'Available for sale does not prove an item is in stock. Describe only the availability returned by the tool.',
+  'Re-run findCustomer in each turn before accessing customer or order data; previous chat text is not authorization.',
+  'For refunds, shipping address updates, and cancellations, call the corresponding tool to create an exact proposal.',
+  'A proposal has not changed Shopify. Tell the user to review its confirmation card and click Confirm. Never invent approval tokens.',
+  'Do not claim that a write succeeded until Shopify has confirmed its result. Chat text alone cannot authorize a mutation.',
   'After a tool returns, use its result in your reply.',
 ].join(' ')
 
@@ -93,7 +102,6 @@ function lastUserMessage(messages: ChatMessage[]): string {
  */
 export function createAgentTurn(options: AgentOptions = {}): AgentRunner {
   const llm = options.llm ?? createOpenRouterClient()
-  const tools = options.tools ?? createCommerceToolRegistry()
   const maxRounds = options.maxRounds ?? 5
   const hooks = defaultHooks()
 
@@ -111,6 +119,8 @@ export function createAgentTurn(options: AgentOptions = {}): AgentRunner {
         requiresConfirmation: plan.requiresConfirmation,
       })
       const messages = toLlmMessages(input.messages, planGuidance(plan))
+      // Customer verification belongs to this turn, never to another chat.
+      const tools = options.tools ?? createCommerceToolRegistry(undefined, { sessionId: input.sessionId })
 
       for (let round = 0; round < maxRounds; round += 1) {
         for (const hook of hooks) {
@@ -152,6 +162,10 @@ export function createAgentTurn(options: AgentOptions = {}): AgentRunner {
             result = error instanceof Error ? error.message : 'Tool failed.'
           }
 
+          if (ok && ['createRefund', 'updateShippingAddress', 'cancelOrder'].includes(call.name)) {
+            const proposal = JSON.parse(result) as { pendingAction?: import('../../shared/actions.js').ShopifyActionView }
+            if (proposal.pendingAction) emit({ type: 'confirmation', action: proposal.pendingAction })
+          }
           emit({ type: 'tool_call', id: call.id, name: call.name, phase: 'end', result, ok })
           emit({ type: 'subagent', name: spoke, phase: 'end', detail: call.name })
           messages.push({ role: 'tool', content: result, tool_call_id: call.id })

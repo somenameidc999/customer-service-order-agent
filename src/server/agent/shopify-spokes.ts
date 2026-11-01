@@ -1,6 +1,7 @@
+import type { ShippingAddress } from '../../shared/actions.js'
 import type { ToolDefinition } from './tools.js'
+import { createShopifyLiveClient } from '../shopify/live-client.js'
 import {
-  createShopifyFixtureClient,
   type ShopifyClient,
   type ShopifyErrorCode,
 } from '../shopify/client.js'
@@ -94,7 +95,7 @@ function asCount(value: unknown): number | undefined {
  * these alongside the built-in tools, and each definition records its owning
  * spoke so the agent can emit `subagent` events.
  */
-export function createShopifySpokeTools(client: ShopifyClient = createShopifyFixtureClient()): ToolDefinition[] {
+export function createShopifySpokeTools(client: ShopifyClient = createShopifyLiveClient()): ToolDefinition[] {
   return [
     {
       spoke: 'customer',
@@ -150,7 +151,7 @@ export function createShopifySpokeTools(client: ShopifyClient = createShopifyFix
       spoke: 'product',
       spec: {
         name: 'searchProducts',
-        description: 'Search published products by title or description.',
+        description: 'Search live Shopify active products. Use a Shopify search term, or * to browse. Results are limited; do not claim they cover the entire catalog.',
         parameters: {
           type: 'object',
           properties: {
@@ -218,22 +219,24 @@ export function createShopifySpokeTools(client: ShopifyClient = createShopifyFix
       spoke: 'order',
       spec: {
         name: 'updateShippingAddress',
-        description: 'Edit an order\'s shipping address. Requires customer confirmation: pass the confirmationToken and a deterministic idempotencyKey.',
+        description: 'Propose a live shipping address update. Collect complete structured address fields. Returns a confirmation card; it does not execute until the user confirms in the UI.',
         parameters: {
           type: 'object',
           properties: {
             orderId: { type: 'string', description: 'Shopify order GID.' },
-            address: { type: 'string', description: 'New shipping address.' },
-            confirmationToken: { type: 'string', description: 'Token recorded by the hub after customer confirmation.' },
-            idempotencyKey: { type: 'string', description: 'Deterministic key so retries do not double-apply.' },
+            address: { type: 'object', description: 'Complete new shipping address.', properties: {
+              address1: { type: 'string' }, address2: { type: 'string' }, city: { type: 'string' },
+              provinceCode: { type: 'string' }, zip: { type: 'string' }, countryCode: { type: 'string', description: 'Two-letter country code.' },
+              firstName: { type: 'string' }, lastName: { type: 'string' },
+            }, required: ['address1','city','zip','countryCode'], additionalProperties: false },
           },
-          required: ['orderId', 'address', 'confirmationToken', 'idempotencyKey'],
+          required: ['orderId', 'address'],
           additionalProperties: false,
         },
       },
       run: (args) => runWithEvidence(() => client.updateShippingAddress({
         orderId: asString(args.orderId, 'orderId'),
-        address: asString(args.address, 'address'),
+        address: args.address as ShippingAddress,
         confirmationToken: String(args.confirmationToken ?? ''),
         idempotencyKey: String(args.idempotencyKey ?? ''),
       })),
@@ -242,22 +245,22 @@ export function createShopifySpokeTools(client: ShopifyClient = createShopifyFix
       spoke: 'order',
       spec: {
         name: 'cancelOrder',
-        description: 'Cancel an order (destructive). Requires human approval plus a confirmationToken and a deterministic idempotencyKey.',
+        description: 'Propose cancellation of an unfulfilled order. Restocks items and notifies the customer. Does not refund captured payments. Notifications are off unless requested. Requires confirmation and store-operator approval in the UI.',
         parameters: {
           type: 'object',
           properties: {
             orderId: { type: 'string', description: 'Shopify order GID.' },
-            reason: { type: 'string', description: 'Cancellation reason.' },
-            confirmationToken: { type: 'string', description: 'Token recorded by the hub after customer confirmation.' },
-            idempotencyKey: { type: 'string', description: 'Deterministic key so retries do not double-apply.' },
+            reason: { type: 'string', enum: ['CUSTOMER','DECLINED','FRAUD','INVENTORY','STAFF','OTHER'], description: 'Cancellation reason.' },
+            notifyCustomer: { type: 'boolean', description: 'Notify the customer only if requested. Default false.' },
           },
-          required: ['orderId', 'reason', 'confirmationToken', 'idempotencyKey'],
+          required: ['orderId', 'reason'],
           additionalProperties: false,
         },
       },
       run: (args) => runWithEvidence(() => client.cancelOrder({
         orderId: asString(args.orderId, 'orderId'),
         reason: asString(args.reason, 'reason'),
+        notifyCustomer: args.notifyCustomer === true,
         confirmationToken: String(args.confirmationToken ?? ''),
         idempotencyKey: String(args.idempotencyKey ?? ''),
       })),
@@ -280,26 +283,26 @@ export function createShopifySpokeTools(client: ShopifyClient = createShopifyFix
       spoke: 'refund',
       spec: {
         name: 'createRefund',
-        description: 'Create a refund (write). Requires customer confirmation: pass the confirmationToken and a deterministic idempotencyKey. Amount is bounded by the order total.',
+        description: 'Propose a monetary refund to original payment methods. The server validates the requested amount against Shopify remaining refundable funds and requires user confirmation and store-operator approval in the UI. Does not restock inventory.',
         parameters: {
           type: 'object',
           properties: {
             orderId: { type: 'string', description: 'Shopify order GID.' },
-            amount: { type: 'string', description: 'Refund amount, as a decimal string.' },
+            amount: { type: 'string', description: 'Requested partial refund as a decimal. Omit to refund the full remaining balance computed by Shopify.' },
             currency: { type: 'string', description: 'ISO currency code.' },
             reason: { type: 'string', description: 'Refund reason.' },
-            confirmationToken: { type: 'string', description: 'Token recorded by the hub after customer confirmation.' },
-            idempotencyKey: { type: 'string', description: 'Deterministic key so retries do not double-refund.' },
+            notifyCustomer: { type: 'boolean', description: 'Send a Shopify refund email only if the user requests it. Default false.' },
           },
-          required: ['orderId', 'amount', 'reason', 'confirmationToken', 'idempotencyKey'],
+          required: ['orderId', 'reason'],
           additionalProperties: false,
         },
       },
       run: (args) => runWithEvidence(() => client.createRefund({
         orderId: asString(args.orderId, 'orderId'),
-        amount: asString(args.amount, 'amount'),
-        currency: optionalString(args.currency) ?? 'USD',
+        amount: optionalString(args.amount),
+        currency: optionalString(args.currency) ?? '',
         reason: asString(args.reason, 'reason'),
+        notifyCustomer: args.notifyCustomer === true,
         confirmationToken: String(args.confirmationToken ?? ''),
         idempotencyKey: String(args.idempotencyKey ?? ''),
       })),

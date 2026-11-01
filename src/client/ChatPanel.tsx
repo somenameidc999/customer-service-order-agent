@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { Bubble, Button, TextArea } from 'pixel-retroui'
 import { buildChatRequest, type AgentEvent } from '../shared/chat'
+import type { ShopifyActionView } from '../shared/actions'
+import { ActionConfirmation } from './ActionConfirmation'
+import { MarkdownMessage } from './MarkdownMessage'
 
 const ink = '#263f34'
 
@@ -105,8 +108,26 @@ export function ChatPanel() {
   const [draft, setDraft] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [actions, setActions] = useState<ShopifyActionView[]>([])
   const scrollRef = useRef<HTMLDivElement>(null)
   const stickToBottom = useRef(true)
+
+  function updateAction(action: ShopifyActionView) {
+    setActions((current) => current.some((entry) => entry.id === action.id)
+      ? current.map((entry) => entry.id === action.id ? action : entry) : [...current, action])
+  }
+
+  useEffect(() => {
+    const controller = new AbortController()
+    fetch('/api/actions', { signal: controller.signal })
+      .then(async (response) => {
+        if (!response.ok) throw new Error('Pending actions could not be loaded. Reload before confirming an order change.')
+        const data = await response.json() as { actions: ShopifyActionView[] }
+        setActions(data.actions.reverse())
+      })
+      .catch((caught: unknown) => { if (!controller.signal.aborted) setError(caught instanceof Error ? caught.message : 'Could not load pending actions.') })
+    return () => controller.abort()
+  }, [])
 
   useEffect(() => {
     const node = scrollRef.current
@@ -158,10 +179,16 @@ export function ChatPanel() {
         if (separator === -1) continue
         const complete = buffer.slice(0, separator)
         buffer = buffer.slice(separator + 2)
-        for (const event of parseSseChunk(complete)) updateAssistant((message) => applyEvent(message, event))
+        for (const event of parseSseChunk(complete)) {
+          if (event.type === 'confirmation') updateAction(event.action)
+          updateAssistant((message) => applyEvent(message, event))
+        }
       }
       if (buffer.trim()) {
-        for (const event of parseSseChunk(buffer)) updateAssistant((message) => applyEvent(message, event))
+        for (const event of parseSseChunk(buffer)) {
+          if (event.type === 'confirmation') updateAction(event.action)
+          updateAssistant((message) => applyEvent(message, event))
+        }
       }
       updateAssistant((message) => (message.pending ? { ...message, pending: false } : message))
     } catch (caught) {
@@ -242,12 +269,16 @@ export function ChatPanel() {
                   ))}
                 </ul>
               )}
-              {message.content && <span className="chat-text">{message.content}</span>}
+              {message.content && (message.role === 'assistant' ? <MarkdownMessage text={message.content} /> : <span className="chat-text">{message.content}</span>)}
               {message.pending && !message.content && <span className="chat-typing">Agent is thinking…</span>}
             </Bubble>
           </div>
         ))}
       </div>
+
+      {actions.length > 0 && <div className="chat-actions" aria-label="Shopify actions">
+        {actions.map((action) => <ActionConfirmation key={action.id} action={action} onChange={updateAction} />)}
+      </div>}
 
       {error && (
         <div className="chat-error" role="alert">

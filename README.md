@@ -40,7 +40,7 @@ src/client/styles.css       Page layout and theme
 src/server/app.ts           Hono routes and production static serving
 src/server/index.ts         Node server entry
 src/server/agent/           Chat agent: OpenRouter client, hooks, tools, SSE route
-src/server/shopify/         Shopify connector: env config and access-token acquisition
+src/server/shopify/         Shopify connector: live reads, write proposals, and confirmed mutations
 src/server/app.test.ts      API and routing tests
 src/shared/contracts.ts     Shared API response types
 src/shared/chat.ts          Shared chat and agent event types
@@ -83,7 +83,7 @@ No database, authentication, external service, or environment file is required. 
 
 ## Shopify connector
 
-The connector (`src/server/shopify/`) reads the Shopify app credentials from the server environment (or a `.env` file) and obtains an Admin API access token with the client credentials grant, caching it until shortly before it expires. Credentials are read server-side only and are never logged, returned in responses, or sent to the browser. See [`docs/shopify-integration.md`](docs/shopify-integration.md) for the full design.
+The connector (`src/server/shopify/`) reads the Shopify app credentials from the server environment (or a `.env` file) and obtains an Admin API access token with the client credentials grant, caching it until shortly before it expires. Chat tools use the live GraphQL client for product searches, product details, verified customer and order lookups, and refund history. There is no sample-data fallback. Credentials are read server-side only and are never logged, returned in responses, or sent to the browser. See [`docs/shopify-integration.md`](docs/shopify-integration.md) for the full design.
 
 | Variable | Purpose | Default |
 | --- | --- | --- |
@@ -91,7 +91,7 @@ The connector (`src/server/shopify/`) reads the Shopify app credentials from the
 | `SHOPIFY_CLIENT_ID` | Shopify app client ID (required) | unset |
 | `SHOPIFY_CLIENT_SECRET` | Shopify app client secret (required) | unset |
 | `SHOPIFY_SCOPES` | Comma-separated Admin API scopes | unset |
-| `SHOPIFY_API_VERSION` | Pinned Admin API version | `2025-01` |
+| `SHOPIFY_API_VERSION` | Pinned Admin API version | `2026-10` |
 | `SHOPIFY_ACCESS_TOKEN` | Pre-provisioned token that skips acquisition | unset |
 
 ```ts
@@ -103,14 +103,57 @@ const accessToken = await getShopifyAccessToken()
 A missing or malformed credential fails with an actionable error at the point the
 connector is used; the rest of the app keeps running without Shopify configured.
 
+Customer and order reads require an order number plus matching order email or phone.
+Verification is isolated to each chat turn. Product queries need no customer details.
+Product searches return at most 20 active products and 25 variants per product;
+results flag truncated variant lists. Order details flag truncated line-item lists.
+Refunds, shipping-address updates, and cancellations create a review card with the
+exact action and order. Click **Confirm in Shopify** to execute. Refunds and
+cancellations also require the store-operator approval checkbox. The model cannot
+approve a write or supply an executable approval token. Captured payments are not
+refunded by cancellation; request a separate refund when needed. Customer
+notifications default to off and can be included in the proposal when requested.
+Refunds are monetary refunds to original payment methods and do not restock items.
+Address changes and cancellations require an unfulfilled order. Line-item quantity,
+product, and discount edits are not included.
+
+The server rechecks ownership, the order version, refundable funds, and payment
+currency before execution. Refund allocations use exact decimal arithmetic and
+Shopify's remaining gateway balances. A private SQLite journal at
+`.data/shopify-actions.sqlite` preserves proposals, approvals, outcomes, and audit
+records across restarts. Repeated confirmations reuse the recorded result. Unknown
+outcomes block another change until Shopify confirms the outcome. Use **Check
+Shopify status** instead of submitting another refund. Proposals expire after 15
+minutes. Keep `.data/` on persistent storage; do not delete the journal to retry an
+uncertain write.
+
+This local app treats the person using its confirmation UI as the store operator.
+It does not implement separate customer/staff accounts. Keep the default loopback
+bind address unless an authenticated access layer is provided.
+
+Shopify must grant this app protected customer data access, including order data
+and name/address/email/phone fields, as well as the `read_orders`, `write_orders`,
+and customer scopes. A valid token or successful product lookup does not prove
+that the app can read orders. If Shopify returns `ACCESS_DENIED` for the `Order`
+object, enable the data access in the app dashboard before testing order writes.
+See [Shopify's protected customer data setup](https://shopify.dev/docs/apps/launch/protected-customer-data).
+
+Assistant messages render Markdown, including lists, links, code blocks, and
+GitHub-style tables. Raw HTML and remote images are disabled.
+
+Optional settings: `SHOPIFY_ACTIONS_DB` changes the journal path;
+`REFUND_WINDOW_DAYS` restricts refunds to orders inside that window.
+
+The offline client lives under
+`src/server/testing/` and is used only when tests explicitly inject it.
+
 ## Documentation
 
 The `docs/` directory contains the design and plan for a hub-and-spoke customer
 service agent that integrates with Shopify (order/customer/product lookups, pricing,
 refunds, and order edits). Start at [`docs/README.md`](docs/README.md). The Shopify
-token acquisition described in [`docs/shopify-integration.md`](docs/shopify-integration.md)
-is implemented in `src/server/shopify/`; the remaining spokes and writes are still
-design only.
+token acquisition, live reads, and confirmed writes described in [`docs/shopify-integration.md`](docs/shopify-integration.md)
+are implemented in `src/server/shopify/`. The remaining roadmap is documented separately.
 
 ## References
 

@@ -60,8 +60,11 @@ Refunds are the highest-risk action. The hub must enforce all of the following:
 5. **Human approval.** Refunds above the threshold, or flagged as risky (repeat
    refunds, mismatched customer, unusual amount), require an explicit human approval
    recorded in the audit log before execution.
-6. **No amount from model output.** The monetary amount is always computed by the
-   pricing spoke; the model never supplies the number that gets refunded.
+6. **Verified quote.** Model-supplied amounts are untrusted requests. The server
+   validates and normalizes the requested amount, computes allocations from
+   Shopify's remaining gateway balances, and binds the exact amount and currency
+   to a review card. Human confirmation authorizes that immutable server quote.
+   Omitting a requested amount uses Shopify's full remaining refundable balance.
 
 ## 6. Order-edit guardrails
 

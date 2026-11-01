@@ -4,14 +4,13 @@ This document describes how the agent authenticates to a Shopify store, which AP
 uses, and how store data is mapped into the hub-and-spoke design in
 [architecture.md](./architecture.md).
 
-> **Status: token acquisition and fixture-backed spokes are implemented.** Token
-> acquisition lives in `src/server/shopify/` (`loadShopifyConfig` and
-> `createShopifyTokenProvider`). The customer, product, order and refund spokes and
-> their tools live in `src/server/agent/shopify-spokes.ts`, backed by the offline
-> `ShopifyFixtureClient` in `src/server/shopify/client.ts`; the coordinator routes to
-> them through `src/server/agent/planner.ts`. Live GraphQL calls and the write
-> guardrail store are still design only. No live credentials, tokens, or store secrets
-> belong in this repository. The examples below use placeholders.
+> **Status: live reads and confirmed writes are implemented.** The application
+> uses `createShopifyLiveClient` for Shopify reads. Refunds, shipping-address updates,
+> and cancellations produce server-owned proposals. Only the confirmation endpoint
+> executes a stored proposal after explicit user confirmation. Refunds and
+> cancellations also require store-operator approval. Tests inject the offline
+> fixture client. Line-item edits remain roadmap work. No live credentials or
+> access tokens belong in this repository.
 
 ## 1. Configuration and secrets
 
@@ -25,7 +24,7 @@ ever read server-side:
 | `SHOPIFY_CLIENT_SECRET` | Shopify app client secret | Yes |
 | `SHOPIFY_SCOPES` | Comma-separated Admin API scopes to request | No |
 | `SHOPIFY_ACCESS_TOKEN` | Cached token (optional; normally obtained at runtime) | Yes |
-| `SHOPIFY_API_VERSION` | Pinned Admin API version, e.g. `2025-01` | No |
+| `SHOPIFY_API_VERSION` | Pinned Admin API version, e.g. `2026-10` | No |
 
 Rules:
 
@@ -152,8 +151,54 @@ actionable failure category.
 
 To develop safely, the connector is an interface with two implementations:
 
-1. **`ShopifyLiveClient`** — real GraphQL calls (used in production).
-2. **`ShopifyFixtureClient`** — returns recorded fixtures for deterministic tests.
+1. **`createShopifyLiveClient`** (`src/server/shopify/live-client.ts`) — real GraphQL
+   reads. The application's tools use this client by default. Failed requests and
+   empty searches never fall back to example data. HTTP 401 triggers one token
+   refresh and retry; HTTP and GraphQL errors surface to the agent.
+2. **`ShopifyFixtureClient`** (`src/server/testing/shopify-fixture.ts`) — returns
+   recorded fixtures only when tests explicitly inject it. Application modules do
+   not import this client.
+
+The live client verifies an order number plus a matching order email or phone
+before returning customer or order data. The agent creates a fresh client per
+turn, so verification cannot leak across chats. Product searches are public and
+bounded. Prices, currency and availability come directly from Shopify. Truncated
+variant and line-item lists are marked in tool results.
+
+Live monetary refunds use `refundCreate` with Shopify's required `@idempotent`
+directive and server-generated action IDs. Amounts are validated against Shopify's
+remaining refundable balance in the payment currency and allocated across original
+payment transactions. A missing requested amount means the full remaining balance.
+The review card is the authoritative human authorization for the server-computed
+quote. Refunds do not restock inventory. Notifications are off unless requested.
+
+Shipping-address changes use `orderUpdate`. Cancellations use `orderCancel`, restock
+items, and do not refund captured payments. Both require an unfulfilled order. A
+cancellation can release payment authorization holds. Cancellations report Shopify's
+asynchronous job as processing until a status check confirms `cancelledAt`.
+Refunds report gateway-pending states without claiming that payment succeeded.
+
+`src/server/shopify/actions.ts` stores immutable action payloads, approvals, and
+outcomes in a private SQLite journal. Session cookies bind proposals to one chat;
+JSON confirmation requests reject cross-origin requests. Approvals expire after
+15 minutes. Each execution rechecks the store, customer, order timestamp, and
+remaining payment balance. A claim is persisted before any mutation, and uncertain
+outcomes lock the order against duplicate writes. Read-only reconciliation uses
+Shopify refund markers, address fields, or cancellation state. The journal must be
+preserved across restarts. Audit records contain action IDs and states, without
+contact information or credentials; the private proposal records contain shipping
+addresses needed to execute the confirmed change.
+
+The current app is local and treats its human UI user as the store operator.
+Separate customer/staff authentication is required before exposing approval
+controls to external customers. Every refund requires explicit operator approval,
+including amounts below the future auto-approval threshold. Line-item edits and
+fully automated refund policies remain roadmap work.
+
+Queries use the pinned `2026-10` schema. See Shopify's
+[product query](https://shopify.dev/docs/api/admin-graphql/2026-10/queries/products),
+[order fields](https://shopify.dev/docs/api/admin-graphql/2026-10/objects/Order), and
+[API versioning policy](https://shopify.dev/docs/api/usage/versioning).
 
 Spokes depend on the interface, so the hub, routing, guardrails, and refund math can
 be tested without touching a real store.

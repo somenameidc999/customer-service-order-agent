@@ -1,6 +1,7 @@
 import type { Context } from 'hono'
 import { CHAT_LIMITS, type AgentEvent, type ChatMessage, type ChatRequestBody, type ChatRole } from '../../shared/chat.js'
 import { createAgentTurn, type AgentRunner } from './agent.js'
+import { chatSession } from './session.js'
 
 const ROLES: ChatRole[] = ['user', 'assistant']
 
@@ -67,6 +68,7 @@ export function createChatHandler(runTurn: AgentRunner = createAgentTurn()) {
 
     const result = validateChatBody(body)
     if (!result.ok) return c.json({ error: result.error }, 400)
+    const sessionId = chatSession(c)
 
     const encoder = new TextEncoder()
     const stream = new ReadableStream<Uint8Array>({
@@ -81,7 +83,7 @@ export function createChatHandler(runTurn: AgentRunner = createAgentTurn()) {
           }
         }
         try {
-          await runTurn({ messages: toChatMessages(result.messages) }, emit)
+          await runTurn({ messages: toChatMessages(result.messages), sessionId }, emit)
         } catch (error) {
           emit({ type: 'error', message: error instanceof Error ? error.message : 'The agent failed unexpectedly.' })
         } finally {
@@ -96,7 +98,8 @@ export function createChatHandler(runTurn: AgentRunner = createAgentTurn()) {
       },
     })
 
-    return new Response(stream, {
+    // Preserve the HttpOnly session cookie on the streaming response.
+    return c.newResponse(stream, {
       headers: {
         'Content-Type': 'text/event-stream; charset=utf-8',
         'Cache-Control': 'no-cache, no-transform',
