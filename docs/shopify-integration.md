@@ -9,7 +9,8 @@ uses, and how store data is mapped into the hub-and-spoke design in
 > and cancellations produce server-owned proposals. Only the confirmation endpoint
 > executes a stored proposal after explicit user confirmation. Refunds and
 > cancellations also require store-operator approval. Tests inject the offline
-> fixture client. Line-item edits remain roadmap work. No live credentials or
+> fixture client. All customer tools also enforce the per-turn authorization
+> context before returning customer data. Line-item edits remain roadmap work. No live credentials or
 > access tokens belong in this repository.
 
 ## 1. Configuration and secrets

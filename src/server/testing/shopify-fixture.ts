@@ -171,8 +171,13 @@ export function createShopifyFixtureClient(): ShopifyClient {
       if (!Number.isFinite(Number(amount)) || Number(amount) <= 0) {
         throw new ShopifyClientError('INVALID_INPUT', '"amount" must be a positive number.')
       }
-      if (Number(amount) > total) {
-        throw new ShopifyClientError('INVALID_INPUT', `Refund amount ${amount} exceeds the refundable ${order.total}.`)
+      const alreadyRefunded = order.refunds.reduce((sum, refund) => sum + Number(refund.amount), 0)
+      const refundable = total - alreadyRefunded
+      if (refundable <= 0) {
+        throw new ShopifyClientError('INVALID_INPUT', `Order ${order.name} has no refundable amount remaining.`)
+      }
+      if (Number(amount) > refundable) {
+        throw new ShopifyClientError('INVALID_INPUT', `Refund amount ${amount} exceeds the refundable ${refundable.toFixed(2)}.`)
       }
       const refund: ShopifyRefund = {
         id: `gid://shopify/Refund/${nextRefundId++}`,
@@ -184,7 +189,7 @@ export function createShopifyFixtureClient(): ShopifyClient {
       }
       refunds.push(refund)
       order.refunds = [...order.refunds, refund]
-      order.financialStatus = Number(amount) >= total ? 'REFUNDED' : 'PARTIALLY_REFUNDED'
+      order.financialStatus = alreadyRefunded + Number(amount) >= total ? 'REFUNDED' : 'PARTIALLY_REFUNDED'
       return { ...refund }
     },
 

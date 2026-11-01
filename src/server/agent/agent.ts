@@ -1,4 +1,5 @@
 import type { AgentEvent, ChatMessage } from '../../shared/chat.js'
+import { createAuthorizationContext } from './authorization.js'
 import { createOpenRouterClient, type LlmClient, type LlmMessage } from './openrouter.js'
 import { planGuidance, planTurn } from './planner.js'
 import { createCommerceToolRegistry, type ToolRegistry } from './tools.js'
@@ -108,6 +109,9 @@ export function createAgentTurn(options: AgentOptions = {}): AgentRunner {
   return async function runTurn(input, emit) {
     emit({ type: 'hook', name: 'agent-turn', phase: 'start' })
     try {
+      // A fresh authorization context per turn: a verified identity established
+      // by findCustomer never survives into another turn or another session.
+      const authorization = createAuthorizationContext()
       // The coordinator plans before the model runs so the right spokes are
       // spawned in the right order (identity before order data, etc.).
       const plan = planTurn(lastUserMessage(input.messages))
@@ -117,6 +121,7 @@ export function createAgentTurn(options: AgentOptions = {}): AgentRunner {
         spokes: plan.spokes,
         requiresCustomerIdentification: plan.requiresCustomerIdentification,
         requiresConfirmation: plan.requiresConfirmation,
+        requiresHumanApproval: plan.requiresHumanApproval,
       })
       const messages = toLlmMessages(input.messages, planGuidance(plan))
       // Customer verification belongs to this turn, never to another chat.
@@ -155,7 +160,9 @@ export function createAgentTurn(options: AgentOptions = {}): AgentRunner {
           let result: string
           let ok = true
           try {
-            result = tool ? await tool.run(parseArguments(call.argumentsText)) : `Unknown tool "${call.name}".`
+            result = tool
+              ? await tool.run(parseArguments(call.argumentsText), { authorization })
+              : `Unknown tool "${call.name}".`
             if (!tool) ok = false
           } catch (error) {
             ok = false

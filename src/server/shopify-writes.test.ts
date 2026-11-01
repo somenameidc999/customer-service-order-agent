@@ -4,6 +4,9 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { createApp } from './app.js'
+import { createAgentTurn } from './agent/agent.js'
+import { createCommerceToolRegistry } from './agent/tools.js'
+import type { AgentEvent } from '../shared/chat.js'
 import { createShopifyLiveClient } from './shopify/live-client.js'
 import { ShopifyActionStore, ActionError } from './shopify/actions.js'
 import type { PendingShopifyAction, ShippingAddress } from '../shared/actions.js'
@@ -96,6 +99,29 @@ test('refunds only propose; the server allocates exact amounts to real parent pa
     assert.equal(mutation.variables.input.currency, 'USD')
     assert.deepEqual(mutation.variables.input.transactions.map((entry: { parentId: string }) => entry.parentId), ['transaction-1','transaction-2'])
     assert.equal((await h.client.checkAction(claimed)).status, 'succeeded')
+  } finally { h.store.close() }
+})
+
+test('the authorized agent prepares a refund card without executing the write', async () => {
+  const h = harness()
+  try {
+    let round = 0
+    const events: AgentEvent[] = []
+    const turn = createAgentTurn({ tools: createCommerceToolRegistry(h.client), llm: {
+      complete: async ({ messages }) => {
+        assert.match(messages[0]?.content ?? '', /Preparing a proposal does not execute the write/)
+        const call = round++ === 0
+          ? { id: 'identify', name: 'findCustomer', argumentsText: JSON.stringify({ orderNumber: '#42', email: 'owner@example.com' }) }
+          : round === 2 ? { id: 'refund', name: 'createRefund', argumentsText: JSON.stringify({ orderId: h.state.id, amount: '12.34', reason: 'Customer requested refund' }) } : null
+        return { content: call ? null : 'Review the confirmation card.', toolCalls: call ? [call] : [] }
+      },
+    } })
+    await turn({ sessionId: 'session-1', messages: [{ id: 'request', role: 'user', content: 'Refund my order', createdAt: new Date().toISOString() }] }, (event) => events.push(event))
+    const confirmation = events.find((event) => event.type === 'confirmation')
+    assert.equal(confirmation?.type === 'confirmation' && confirmation.action.kind, 'refund')
+    assert.equal(confirmation?.type === 'confirmation' && confirmation.action.status, 'pending')
+    assert.equal(h.calls.filter((call) => call.query.startsWith('mutation ')).length, 0)
+    assert.ok(events.some((event) => event.type === 'tool_call' && event.name === 'createRefund' && event.phase === 'end' && event.ok))
   } finally { h.store.close() }
 })
 
