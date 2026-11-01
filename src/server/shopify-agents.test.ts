@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import type { AgentEvent } from '../shared/chat.js'
+import { createShopifyFixtureClient } from './testing/shopify-fixture.js'
 import { createAgentTurn } from './agent/agent.js'
 import { createAuthorizationContext } from './agent/authorization.js'
 import type { LlmClient } from './agent/openrouter.js'
@@ -23,7 +24,7 @@ function fakeLlm(responses: Awaited<ReturnType<LlmClient['complete']>>[]): LlmCl
 function authorizedTools() {
   const authorization = createAuthorizationContext()
   const context: ToolContext = { authorization }
-  const tools = new Map(createShopifySpokeTools().map((tool) => [tool.spec.name, tool]))
+  const tools = new Map(createShopifySpokeTools(createShopifyFixtureClient()).map((tool) => [tool.spec.name, tool]))
   async function identify(orderNumber = '#1001', email = 'ada@example.com'): Promise<string> {
     const tool = tools.get('findCustomer') as ToolDefinition
     const result = JSON.parse(await tool.run({ orderNumber, email }, context)) as { customer: { id: string } }
@@ -50,8 +51,8 @@ test('the four required Shopify spokes exist with least-privilege scopes and too
 })
 
 test('every Shopify tool is owned by its spoke and exposed on the hub registry', () => {
-  const registry = createCommerceToolRegistry()
-  const owned = new Map(createShopifySpokeTools().map((tool) => [tool.spec.name, tool.spoke]))
+  const registry = createCommerceToolRegistry(createShopifyFixtureClient())
+  const owned = new Map(createShopifySpokeTools(createShopifyFixtureClient()).map((tool) => [tool.spec.name, tool.spoke]))
   for (const spoke of shopifySpokes) {
     for (const tool of spoke.tools) {
       assert.equal(owned.get(tool), spoke.name, `${tool} should belong to ${spoke.name}`)
@@ -63,7 +64,7 @@ test('every Shopify tool is owned by its spoke and exposed on the hub registry',
 test('findCustomer enforces the order-number plus email/phone two-factor rule', async () => {
   const authorization = createAuthorizationContext()
   const context: ToolContext = { authorization }
-  const [findCustomer] = createShopifySpokeTools().filter((tool) => tool.spec.name === 'findCustomer')
+  const [findCustomer] = createShopifySpokeTools(createShopifyFixtureClient()).filter((tool) => tool.spec.name === 'findCustomer')
   assert.ok(findCustomer)
 
   const ok = JSON.parse(await findCustomer.run({ orderNumber: '#1001', email: 'ada@example.com' }, context)) as {
@@ -280,7 +281,7 @@ test('an agent turn emits the plan and spawns spokes in the planned order', asyn
     },
     { content: 'Your order #1001 has been fulfilled.', toolCalls: [] },
   ])
-  const runTurn = createAgentTurn({ llm })
+  const runTurn = createAgentTurn({ llm, tools: createCommerceToolRegistry(createShopifyFixtureClient()) })
 
   await runTurn(
     { messages: [{ id: 'm1', role: 'user', content: 'Is my order ready?', createdAt: new Date().toISOString() }] },

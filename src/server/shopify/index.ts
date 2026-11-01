@@ -17,3 +17,4 @@ export {
   type ShopifyTokenProvider,
   type ShopifyTokenProviderOptions,
 } from './token.js'
+export { createShopifyLiveClient, type ShopifyLiveClientOptions } from './live-client.js'

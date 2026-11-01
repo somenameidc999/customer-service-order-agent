@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { ShopifyClient } from '../shopify/client.js'
+import { createShopifyLiveClient } from '../shopify/live-client.js'
 import type { AuthorizationContext } from './authorization.js'
 import { createShopifySpokeTools } from './shopify-spokes.js'
 
@@ -136,9 +137,9 @@ export function createToolRegistry(definitions: ToolDefinition[] = toolDefinitio
 
 /**
  * The hub's full tool set: built-in utilities plus every Shopify spoke.
- * The Shopify client defaults to the offline fixture client so the app runs
- * without credentials; callers can inject a live client later.
+ * Application calls use live Shopify data. Tests must inject their own client.
  */
-export function createCommerceToolRegistry(client?: ShopifyClient): ToolRegistry {
+export function createCommerceToolRegistry(client?: ShopifyClient, context?: { sessionId?: string }): ToolRegistry {
+  client ??= createShopifyLiveClient({ sessionId: context?.sessionId })
   return createToolRegistry([...toolDefinitions, ...createShopifySpokeTools(client)])
 }

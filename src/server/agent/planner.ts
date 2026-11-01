@@ -132,10 +132,10 @@ export function planGuidance(plan: TurnPlan): string {
       ? 'You must identify the customer with findCustomer (order number plus a matching email or phone) before reading any order data.'
       : 'No customer identification is required for this turn.',
     plan.requiresConfirmation
-      ? 'Before any write, summarize the change, obtain explicit customer confirmation, and pass the confirmationToken and idempotencyKey.'
+      ? 'Call the write tool to prepare an exact proposal. Execution requires explicit customer confirmation in its UI card; never invent a confirmation token or idempotency key.'
       : '',
     plan.requiresHumanApproval
-      ? 'This action needs explicit human approval before the write executes; do not call the write tool until that approval is recorded.'
+      ? 'This action needs explicit human approval in its confirmation card before Shopify execution. Preparing a proposal does not execute the write.'
       : '',
     'Do not call a spoke outside this sequence.',
   ].filter((part) => part.length > 0).join(' ')

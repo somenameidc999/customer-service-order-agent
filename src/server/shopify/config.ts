@@ -8,7 +8,7 @@ import { existsSync } from 'node:fs'
 export const DEFAULT_SHOPIFY_STORE_DOMAIN = 'nate-ce.myshopify.com'
 
 /** Pinned Admin API version; see docs/shopify-integration.md. */
-export const DEFAULT_SHOPIFY_API_VERSION = '2025-01'
+export const DEFAULT_SHOPIFY_API_VERSION = '2026-10'
 
 export class ShopifyConfigError extends Error {
   constructor(message: string) {

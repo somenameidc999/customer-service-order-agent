@@ -1,6 +1,8 @@
 // Shared types for the chat interface. These are used by both the Hono chat
 // route (server) and the chat panel (client).
 
+import type { ShopifyActionView } from './actions.js'
+
 export type ChatRole = 'user' | 'assistant'
 
 /** A single turn in the visible chat history. */
@@ -29,6 +31,7 @@ export type AgentEvent =
       ok?: boolean
     }
   | { type: 'assistant_message'; text: string }
+  | { type: 'confirmation'; action: ShopifyActionView }
   | { type: 'error'; message: string }
   | { type: 'done' }
 
