@@ -43,15 +43,56 @@ const PURCHASE_REFERENCE = /\b(i\s+ordered|i\s+bought|i\s+purchased|my\s+(?:orde
 // confirmation (docs/security.md §6, docs/agents.md routing summary).
 const DESTRUCTIVE_EDIT = /\b(cancel|remove|delete)\b/i
 
+interface ScopedOperations {
+  text: string
+  refund?: boolean
+  cancel?: boolean
+  edit?: boolean
+}
+
+/** Keep a negative qualifier attached to its own operation, not the whole turn. */
+function scopedOperations(message: string): ScopedOperations {
+  // Quoted instructions are evidence, not a fresh customer request. Do not
+  // treat apostrophes inside contractions as quotation delimiters.
+  const text = message.replace(/"[^"\n]*"|“[^”\n]*”|(?:^|\s)'[^'\n]+'(?=\s|[.,;!?]|$)/g, ' ')
+  const result: ScopedOperations = { text }
+  const words = /\b(cancel|refunds?|reimburse(?:ment)?|money\s+back|charge\s?back|charged\s+(?:me\s+)?twice|double[- ]charged|duplicate\s+charge|change|update|edit|remove|add|swap|correct)\b/gi
+  const ignored: Array<{ start: number; end: number }> = []
+  let previous: { end: number; clauseStart: number; negative: boolean } | undefined
+  for (const match of text.matchAll(words)) {
+    const start = match.index!
+    const boundaries = Array.from(text.slice(0, start).matchAll(/[.!?;,\n]|\b(?:but|however|actually)\b/gi))
+    const boundary = boundaries.at(-1)
+    const clauseStart = boundary ? boundary.index! + boundary[0].length : 0
+    const prefix = text.slice(clauseStart, start)
+    const kind = /^cancel$/i.test(match[0]) ? 'cancel' : REFUND.test(match[0]) ? 'refund' : 'edit'
+    const historical = /\b(?:earlier|previously|yesterday|last time)\b/i.test(prefix) && /\b(?:said|asked|wanted|requested)\b/i.test(prefix) && !/\b(?:now|please)\b/i.test(prefix)
+    if (historical) { ignored.push({ start, end: start + match[0].length }); continue }
+    const directNegative = /\b(?:(?:do not|don't|don’t|never|not|no longer)\s+(?:(?:want|wish|need|request|authorize)(?:\s+to)?\s+)?(?:an?\s+)?|(?:no|without)\s+(?:an?\s+)?|instead of\s+|stop\s+(?:(?:the|my|this)\s+)?)$/i.test(prefix)
+    const sharedNegative = previous?.negative && previous.clauseStart === clauseStart &&
+      /\b(?:and|or|nor)\s*$/i.test(text.slice(previous.end, start)) &&
+      !/\b(?:please|now|instead|i want|i need)\b/i.test(text.slice(previous.end, start))
+    const negative = directNegative || Boolean(sharedNegative)
+    result[kind] = !negative
+    if (negative) ignored.push({ start, end: start + match[0].length })
+    previous = { end: start + match[0].length, clauseStart, negative }
+  }
+  // The existing domain keyword rules see only non-negated, current operations.
+  for (const span of ignored.reverse()) result.text = result.text.slice(0, span.start) + ' '.repeat(span.end - span.start) + result.text.slice(span.end)
+  return result
+}
+
 export function classifyIntent(message: string): CustomerIntent {
-  const text = message.trim()
+  const operations = scopedOperations(message.trim())
+  const text = operations.text
   if ((/^\s*(?:(?:an?|the)\s+)?agent(?:\s+please)?[.!]?\s*$/i.test(text) || /\b(?:speak|talk|connect|transfer)\b.{0,25}\b(?:agent|person)\b/i.test(text) || /\b(?:human|real person|representative|supervisor|support agent|speak to someone|talk to someone)\b/i.test(text)) && !/\b(?:no|not|don't|do not) (?:need|want) (?:a )?human\b/i.test(text)) return 'human_request'
-  if (/^\s*(?:please\s+)?(?:stop|wait|hold on|forget it|cancel that|cancel the request)(?:\s+please)?[.!]?\s*$/i.test(text) || /\b(?:never ?mind|stop (?:the |my |this )?(?:refund|cancellation|order change)|cancel (?:the |my |this )?(?:refund request|cancellation request|request|proposal)|(?:do not|don't|don’t) (?:want to |wish to )?(?:cancel|refund|change|update|edit)|(?:don't|do not|don’t) (?:want|need) (?:a )?refund|no longer (?:want|need)(?: to)? (?:a )?(?:refund|cancel|change)|hold off|leave (?:it|the order) (?:alone|unchanged))\b/i.test(text)) return 'withdraw_request'
+  if (/^\s*(?:please\s+)?(?:stop|wait|hold on|forget it|cancel that|cancel the request)(?:\s+please)?[.!]?\s*$/i.test(message.trim()) || /\b(?:never ?mind|cancel (?:the |my |this )?(?:refund request|cancellation request|request|proposal)|hold off|leave (?:it|the order) (?:alone|unchanged))\b/i.test(text)) return 'withdraw_request'
+  if ((operations.refund === false || operations.cancel === false || operations.edit === false) && !operations.refund && !operations.cancel && !operations.edit) return 'withdraw_request'
   if (/\b(?:did|has|is|was)\b.*\b(?:refund|cancellation|address|change)\b.*\b(?:go through|complete|completed|processed|succeed|succeeded|saved|done|pending)\b|\b(?:refund|cancellation|action) status\b|\bcheck (?:the |my )?(?:action|refund|cancellation)\b/i.test(text)) return 'action_status'
   if (EDIT_VERB.test(text) && /\b(?:quantity|quantities|discount|line items?|products?|size|color|colour|two more|more items)\b/i.test(text) && !/\b(?:shipping|address)\b/i.test(text)) return 'unsupported_edit'
-  if (REFUND.test(text) && /\bcancel\b/i.test(text)) return 'cancel_refund'
-  if (REFUND.test(text)) return 'refund_request'
-  if (EDIT_VERB.test(text) && EDIT_TARGET.test(text)) return 'order_edit'
+  if (operations.refund && operations.cancel) return 'cancel_refund'
+  if (operations.refund) return 'refund_request'
+  if ((operations.cancel || operations.edit) && EDIT_VERB.test(text) && EDIT_TARGET.test(text)) return 'order_edit'
   if (ORDER_STATUS.test(text)) return 'order_status'
   if (PRODUCT.test(text)) return 'product_question'
   return 'general'
@@ -106,7 +147,7 @@ export function planTurn(message: string, history: readonly { role: string; cont
         summary: 'Identify the customer, read the order, then quote and (after confirmation) refund.',
       }
     case 'order_edit': {
-      const destructive = DESTRUCTIVE_EDIT.test(message)
+      const destructive = DESTRUCTIVE_EDIT.test(scopedOperations(message).text) && scopedOperations(message).cancel !== false
       return {
         intent,
         spokes: ['customer', 'order'],

@@ -352,3 +352,96 @@ test('evaluation: a rejected forced refund stops after one proposal attempt and 
   assert.ok(!events.some((event) => event.type === 'error'))
   assert.ok(!events.some((event) => event.type === 'confirmation'))
 })
+
+test('evaluation: negated qualifiers apply only to the named operation', () => {
+  for (const prompt of [
+    'Please cancel my order. Do not refund the captured payment and do not notify the customer.',
+    'Cancel my order but do not refund it.',
+    "Do not refund the payment; please cancel my order.",
+    "Cancel my order without a refund.",
+    'Earlier I requested a refund. Please cancel my order.',
+  ]) {
+    const plan = planTurn(prompt)
+    assert.equal(plan.intent, 'order_edit', prompt)
+    assert.equal(plan.requiresHumanApproval, true, prompt)
+    assert.deepEqual(plan.spokes, ['customer', 'order'], prompt)
+  }
+  for (const prompt of [
+    'Please refund $10. Do not cancel the order.',
+    "Refund $10, but don't cancel my order.",
+    "Do not cancel my order; please refund $10 instead.",
+    'You said "cancel my order", but please refund $10 instead.',
+    'Earlier I asked to cancel my order. Please refund $10.',
+  ]) assert.equal(planTurn(prompt).intent, 'refund_request', prompt)
+  for (const prompt of [
+    'Do not cancel my order.',
+    'Cancel my order, actually do not cancel.',
+    "Refund $10, actually don't refund anything.",
+    'Do not cancel or refund my order.',
+  ]) assert.equal(planTurn(prompt).intent, 'withdraw_request', prompt)
+  assert.equal(planTurn('Please cancel my order and refund the payment.').intent, 'cancel_refund')
+})
+
+test('evaluation: live cancellation wording verifies customer then proposes only cancellation without notifications', async () => {
+  const { createEvaluationEnvironment } = await import('./evaluation/environment.js')
+  const environment = createEvaluationEnvironment()
+  const email = 'agent-live-cancellation-e53e9c38-6f7d-41ca-9713-5b5d9c8c522a@example.invalid'
+  const prompt = `Please cancel order #1094. My email is ${email}. This is an authorized test-order cancellation. Do not refund the captured payment and do not notify the customer.`
+  const order = environment.state.orders[0]!
+  order.id = 'gid://shopify/Order/1094'; order.name = '#1094'; order.email = email
+  order.customer.defaultEmailAddress.emailAddress = email
+  let round = 0
+  const events: AgentEvent[] = []
+  try {
+    const run = createAgentTurn({ actions: environment.store, handoffs: environment.handoffs,
+      toolsFactory: () => createCommerceToolRegistry(environment.client('scoped-cancel'), { sessionId: 'scoped-cancel', actions: environment.store, handoffs: environment.handoffs }),
+      llm: { complete: async ({ tools, requiredTool }) => {
+        if (round++ === 0) {
+          assert.ok(tools.some((tool) => tool.name === 'findCustomer'))
+          assert.ok(!tools.some((tool) => tool.name === 'cancelOrder'))
+          return { content: null, toolCalls: [{ id: 'verify-live-wording', name: 'findCustomer', argumentsText: JSON.stringify({ orderNumber: '#1094', email }) }] }
+        }
+        assert.equal(requiredTool, 'cancelOrder')
+        assert.ok(tools.some((tool) => tool.name === 'cancelOrder'))
+        assert.ok(!tools.some((tool) => tool.name === 'createRefund'))
+        return { content: null, toolCalls: [{ id: 'cancel-live-wording', name: 'cancelOrder', argumentsText: JSON.stringify({ orderId: order.id, reason: 'CUSTOMER', notifyCustomer: true }) }] }
+      } },
+    })
+    await run({ sessionId: 'scoped-cancel', messages: messages(prompt) }, (event) => events.push(event))
+    const calls = events.filter((event) => event.type === 'tool_call' && event.phase === 'start')
+    assert.deepEqual(calls.map((event) => event.name), ['findCustomer', 'cancelOrder'])
+    const plan = events.find((event) => event.type === 'plan')
+    assert.equal(plan?.type === 'plan' && plan.intent, 'order_edit')
+    const action = environment.store.list('scoped-cancel')[0]!
+    assert.equal(action.kind, 'cancel_order')
+    assert.equal(action.requiresApproval, true)
+    const payload = environment.store.get(action.id, 'scoped-cancel').payload
+    assert.equal(payload.kind === 'cancel_order' && payload.notifyCustomer, false)
+    assert.equal(environment.store.list('scoped-cancel').length, 1)
+    assert.equal(environment.calls.filter((call) => call.mutation).length, 0)
+    assert.equal(order.cancelledAt, null)
+    assert.equal(order.refunds.length, 0)
+  } finally { environment.close() }
+})
+
+test('evaluation: positive refund with a no-cancellation qualifier exposes only the refund write', async () => {
+  const { createEvaluationEnvironment } = await import('./evaluation/environment.js')
+  const environment = createEvaluationEnvironment()
+  let round = 0
+  const events: AgentEvent[] = []
+  try {
+    await createAgentTurn({ actions: environment.store, handoffs: environment.handoffs,
+      toolsFactory: () => createCommerceToolRegistry(environment.client('scoped-refund'), { sessionId: 'scoped-refund', actions: environment.store, handoffs: environment.handoffs }),
+      llm: { complete: async ({ tools, requiredTool }) => {
+        if (round++ === 0) return { content: null, toolCalls: [{ id: 'verify', name: 'findCustomer', argumentsText: '{"orderNumber":"#1001","email":"ada@example.com"}' }] }
+        assert.equal(requiredTool, 'createRefund')
+        assert.ok(tools.some((tool) => tool.name === 'createRefund'))
+        assert.ok(!tools.some((tool) => tool.name === 'cancelOrder'))
+        return { content: null, toolCalls: [{ id: 'refund', name: 'createRefund', argumentsText: '{"orderId":"gid://shopify/Order/1001","amount":"10.00","reason":"request"}' }] }
+      } },
+    })({ sessionId: 'scoped-refund', messages: messages('Please refund $10 USD on order #1001. My email is ada@example.com. Do not cancel my order or notify the customer.') }, (event) => events.push(event))
+    assert.deepEqual(events.filter((event) => event.type === 'tool_call' && event.phase === 'start').map((event) => event.name), ['findCustomer', 'createRefund'])
+    assert.equal(environment.store.list('scoped-refund')[0]?.kind, 'refund')
+    assert.equal(environment.calls.filter((call) => call.mutation).length, 0)
+  } finally { environment.close() }
+})
