@@ -104,6 +104,15 @@ test('coding-help requests that mention a store noun are still refused', () => {
     'Help me debug the checkout code for my store.',
     'Teach me how to code a checkout for my store.',
     'Show me how to program my store checkout.',
+    // Follow-up P2 (a): a generic store noun after an article must not relax a
+    // coding-help request just because a code word precedes it.
+    'Help me with programming the product page.',
+    'Show me how to program the product page.',
+    // Follow-up P2 (b): "tutorial"/"textbook" are not store-topic nouns, so a
+    // code word paired with them must not be treated as a store product.
+    'Show me how to program a tutorial generator.',
+    'Show me how to program a textbook generator.',
+    'Help me write a tutorial script.',
   ]
   for (const prompt of refused) {
     const plan = planTurn(prompt)
@@ -112,6 +121,27 @@ test('coding-help requests that mention a store noun are still refused', () => {
     assert.equal(plan.requiresCustomerIdentification, false, prompt)
     assert.match(planGuidance(plan), /This is something that I cannot do\./, prompt)
   }
+})
+
+test('the relaxed coding phrase requires a direct store-product modifier', () => {
+  // The relaxation only applies when a code word directly modifies a noun from
+  // the store-topic vocabulary. Every noun accepted by CODE_PRODUCT must already
+  // be a store-topic noun, so the gate cannot be wider than the base gate.
+  for (const noun of ['book', 'books', 'course', 'courses', 'guide', 'guides', 'manual', 'manuals', 'product', 'products', 'item', 'items']) {
+    assert.equal(
+      planTurn(`Do you sell a Python ${noun}?`).intent === 'out_of_scope',
+      false,
+      `Python ${noun} should stay in scope`,
+    )
+  }
+  // An article, verb or possessive between the code word and the noun keeps the
+  // phrase a coding request instead of a store-product mention.
+  for (const prompt of [
+    'Help me program a product.',
+    'Help me program the product.',
+    'Help me program my product.',
+    'Help me code an item.',
+  ]) assert.equal(planTurn(prompt).intent, 'out_of_scope', prompt)
 })
 
 test('a coding-help request that mentions a store noun never reaches the model or a tool', async () => {
