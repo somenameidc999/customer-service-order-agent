@@ -128,7 +128,9 @@ envelope in [architecture.md](./architecture.md) and the principles below:
 - **Guardrails:** each edit rejects requests without a valid `confirmationToken` and a
   deterministic `idempotencyKey`, and is validated against order state (for example,
   cannot edit a fully refunded order); destructive edits (cancel order, remove line
-  items) always require human approval.
+  items) always require human approval. A pre-tool-use hook blocks
+  `updateShippingAddress` when the new address is a PO box, so the proposal is never
+  created.
 
 ## Routing summary
 

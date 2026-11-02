@@ -8,6 +8,7 @@ import { planGuidance, planTurn } from './planner.js'
 import { getShopifyActionStore, type ShopifyActionStore } from '../shopify/actions.js'
 import { getHumanSupportStore, type HumanSupportStore } from './handoff.js'
 import { createCommerceToolRegistry, type ToolRegistry } from './tools.js'
+import { defaultPreToolUseHooks, type PreToolUseHook } from './pre-tool-use.js'
 
 export type AgentEmitter = (event: AgentEvent) => void
 
@@ -26,6 +27,8 @@ export interface AgentOptions {
   toolsFactory?: (input: AgentTurnInput) => ToolRegistry
   actions?: ShopifyActionStore
   handoffs?: HumanSupportStore
+  /** Hooks that run before each tool call; injectable so tests stay offline. */
+  preToolUseHooks?: PreToolUseHook[]
 }
 
 const SYSTEM_PROMPT = [
@@ -135,6 +138,7 @@ export function createAgentTurn(options: AgentOptions = {}): AgentRunner {
   const llm = options.llm ?? createOpenRouterClient()
   const maxRounds = options.maxRounds ?? 5
   const hooks = defaultHooks()
+  const preToolUseHooks = options.preToolUseHooks ?? defaultPreToolUseHooks()
 
   return async function runTurn(input, emit) {
     emit({ type: 'hook', name: 'agent-turn', phase: 'start' })
@@ -263,6 +267,14 @@ export function createAgentTurn(options: AgentOptions = {}): AgentRunner {
             if (!offered.has(call.name)) throw new Error('UNAUTHORIZED: This tool is not available in the current step. Identify the customer first, and use only tools for the requested action.')
             if (failedCalls.has(fingerprint)) throw new Error('RETRY_BLOCKED: This identical call already failed. Ask for corrected information or human support.')
             if (argumentError) throw argumentError
+            // Pre-tool-use hooks see the parsed arguments and may block the call
+            // before the spoke can touch Shopify. A throw is caught below and the
+            // call is reported as a failed tool call.
+            for (const hook of preToolUseHooks) {
+              emit({ type: 'hook', name: hook.name, phase: 'start', detail: call.name })
+              await hook.run({ tool: call.name, args })
+              emit({ type: 'hook', name: hook.name, phase: 'end', detail: call.name })
+            }
             if (call.name === 'findCustomer') requireCustomerSuppliedIdentity(args, input.messages)
             result = tool
               ? await tool.run(args, { authorization })
