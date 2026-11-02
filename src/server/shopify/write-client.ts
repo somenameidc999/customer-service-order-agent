@@ -1,4 +1,5 @@
 import type { ShopifyActionStatus, ShopifyActionView, ShippingAddress } from '../../shared/actions.js'
+import { isPoBoxAddress } from '../../shared/address.js'
 import { getShopifyActionStore, type ActionPayload, type RefundTransaction, type ShopifyActionStore, type StoredShopifyAction } from './actions.js'
 import { ShopifyClientError, type ShopifyClient } from './client.js'
 import type { ShopifyConfig } from './config.js'
@@ -90,6 +91,9 @@ export function validateAddress(value: string | ShippingAddress): ShippingAddres
   address.countryCode = address.countryCode.toUpperCase()
   if (!/^[A-Z]{2}$/.test(address.countryCode)) invalid('Use a two-letter country code for the shipping address.')
   if (address.provinceCode) address.provinceCode = address.provinceCode.toUpperCase()
+  // Defense in depth behind the agent's pre-tool-use hook: no code path may
+  // store or execute a PO box shipping address through this client.
+  if (isPoBoxAddress(address)) invalid('Shipping to a PO box is not supported. Provide a physical street address.')
   return address
 }
 

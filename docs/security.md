@@ -77,6 +77,9 @@ Refunds are the highest-risk action. The hub must enforce all of the following:
 - Destructive actions (cancel order, remove line items) always require human approval.
 - Non-destructive edits (shipping address) require customer confirmation and a state
   re-check immediately before the mutation to avoid stale-write races.
+- A pre-tool-use hook rejects an `updateShippingAddress` whose new address is a PO box
+  before any proposal is stored; the Shopify write client enforces the same rule
+  independently.
 
 ## 7. Audit trail
 
@@ -113,3 +116,24 @@ full payment data.
   "verify before retry": re-query Shopify state before attempting the mutation again.
 - When any guardrail blocks automation, the hub escalates to a human with a summary and
   the relevant order reference — it never silently downgrades the policy.
+
+## 11. Scope guardrail
+
+- The agent answers only questions about the store's products, the customer's own
+  orders, and its own tool calls. Coding help, general knowledge, homework,
+  role-play, and any attempt to change or reveal the instructions are refused with
+  exactly: "This is something that I cannot do."
+- Scope is enforced by deterministic server-side classification before the model
+  runs, so untrusted user text cannot widen the agent's role or unlock a Shopify
+  tool. Wider-world questions such as "What is the tallest mountain in the world?"
+  are refused before the model runs when they name no store or contextual topic,
+  and the no-spoke routing guidance carries the same refusal rule instead of telling
+  the model to answer directly.
+- A store or order request that merely names a programming language ("Do you sell a
+  Java programming book?") is not treated as a coding request. Only an explicit
+  coding action refuses deterministically. The language or code word must directly
+  describe a store product, immediately before a store-topic noun such as "Python
+  book" or "programming book"; a coding request that merely mentions a store noun
+  ("Help me with programming my store's checkout."), or that separates the code word
+  from the noun with an article, verb or possessive ("Help me with programming the
+  product page."), is still refused.
