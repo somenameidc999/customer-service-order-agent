@@ -181,7 +181,9 @@ The deterministic classifier is deliberately conservative in both directions:
 - A legitimate product or order request that merely names a programming language,
   such as "Do you sell a Java programming book?" or "Where is my Python programming
   book order?", stays in scope. Only an explicit coding action ("write me a Python
-  script") is refused.
+  script") is refused. The language must describe a store product: a coding request
+  that merely mentions a store noun ("Help me with programming my store's checkout.")
+  still refuses.
 
 ## Extensibility
 

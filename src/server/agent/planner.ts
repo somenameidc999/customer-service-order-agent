@@ -57,6 +57,12 @@ const STORE_CODE = /\b(?:discount|promo(?:tional)?|gift|coupon|voucher|referral|
 const CODE_TASK = /\b(?:write|create|generate|debug|fix|refactor|review|optimi[sz]e|build|implement|compile)\b[^.!?\n]{0,40}\b(?:code|script|program(?:ming)?|function|class|snippet|regex|sql|python|javascript|typescript|node\.?js|java|bash|shell|html|css|algorithm|loops?|api endpoint|unit tests?)\b/i
 const CODE_HELP = /\b(?:help(?: me)?|teach me|show me how)\b[^.!?\n]{0,30}\b(?:program(?:ming)?|cod(?:e|ing)|python|javascript|typescript|html|css|sql|regex)\b/i
 const CODE_SUBJECT = /\b(?:python|javascript|typescript|node\.?js|java|bash|shell|sql|regex|html|css)\b[^.!?\n]{0,25}\b(?:script|code|snippet|program|function|query|regex|file)\b/i
+// A language or code word that directly describes a store product, for example
+// "Python programming book", "HTML code book" or "Python function book". This
+// narrow phrase is what makes a language mention in scope. A retail noun
+// elsewhere in the sentence ("my store's checkout", "my payment code") does not,
+// so "Help me with programming my store's checkout." is still a coding request.
+const CODE_PRODUCT = /\b(?:python|javascript|typescript|node\.?js|java|bash|shell|sql|regex|html|css|program(?:ming)?|cod(?:e|ing)|script(?:ing)?)\b[^.!?\n]{0,20}\b(?:book|books|course|courses|guide|guides|manual|manuals|textbook|tutorial|product|products|item|items)\b/i
 const GENERAL_KNOWLEDGE = /\b(?:capital of|population of|president of|prime minister|weather (?:in|for|today|tomorrow)|stock (?:price|market)|cryptocurrenc(?:y|ies)|who (?:won|invented|discovered)|tell me (?:a )?(?:joke|riddle)|write (?:me )?(?:a |an )?(?:poem|story|essay|song|letter|resume|haiku|limerick)|translate\b[^.!?\n]{0,40}\b(?:into|to)\b|summari[sz]e\b[^.!?\n]{0,30}\b(?:article|text|document|paragraph|essay|story|paper)|homework|book report)\b/i
 const INSTRUCTION_OVERRIDE = /\b(?:ignore|disregard|forget|override|bypass)\b[^.!?\n]{0,30}\b(?:(?:all|any|your|the|these|those|previous|prior|above|earlier|original)\s+){0,3}(?:instructions?|rules?|prompts?|directions?|guidelines?|guardrails?|polic(?:y|ies)|restrictions?)\b|\b(?:reveal|show|print|repeat|display|what (?:are|is|were))\b[^.!?\n]{0,30}\b(?:system prompt|system message|hidden prompt|initial prompt|your (?:instructions|rules|guidelines|prompt))\b|\b(?:repeat|print|output|echo|show)\b[^.!?\n]{0,20}\b(?:everything (?:above|before)|the (?:text|prompt|instructions?) above)\b/i
 const ROLE_TAKEOVER = /\b(?:developer mode|jailbreak(?:en|ed)?|do anything now|you (?:are|'re) (?:now )?(?:dan|jailbroken|unrestricted|unfiltered)|pretend (?:to be|you (?:are|'re))|role[- ]?play(?:ing)? as|act as (?:if|though|a (?:different|new|unrestricted|unfiltered) (?:ai|assistant|model|bot)|an? (?:ai|model|assistant|bot) (?:without|with no|that)))\b/i
@@ -93,9 +99,10 @@ function isOutOfScope(message: string): boolean {
   if (INSTRUCTION_OVERRIDE.test(text) || ROLE_TAKEOVER.test(text) || HARMFUL_TECH.test(text)) return true
   if (GENERAL_KNOWLEDGE.test(text)) return true
   // An explicit coding action is always out of scope. A bare language mention or
-  // a generic "help me" only refuses when the request is not about a store topic.
+  // a generic "help me" only stays in scope when the language describes a store
+  // product; a coding request that merely mentions a store noun still refuses.
   if (CODE_TASK.test(text)) return true
-  if (!STORE_TOPIC.test(text) && (CODE_HELP.test(text) || CODE_SUBJECT.test(text))) return true
+  if (!CODE_PRODUCT.test(text) && (CODE_HELP.test(text) || CODE_SUBJECT.test(text))) return true
   return isGeneralFactQuestion(message)
 }
 
