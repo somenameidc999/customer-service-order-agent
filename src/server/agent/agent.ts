@@ -5,9 +5,17 @@ import { createAuthorizationContext } from './authorization.js'
 import { createOpenRouterClient, type LlmClient, type LlmMessage } from './openrouter.js'
 import { requestedCustomerNotification, requestedFullRefund, requestedRefundAmount } from './refund-request.js'
 import { planGuidance, planTurn } from './planner.js'
-import { getShopifyActionStore, type ShopifyActionStore } from '../shopify/actions.js'
+import { getShopifyActionStore, type ShopifyActionStore, type StoredShopifyAction } from '../shopify/actions.js'
 import { getHumanSupportStore, type HumanSupportStore } from './handoff.js'
 import { createCommerceToolRegistry, type ToolRegistry } from './tools.js'
+import {
+  REFUND_ESCALATION_HOOK,
+  defaultToolHooks,
+  exceedsRefundLimit,
+  refundEscalationSummary,
+  type PreToolUseHook,
+  type ToolEscalation,
+} from './tool-hooks.js'
 
 export type AgentEmitter = (event: AgentEvent) => void
 
@@ -26,6 +34,8 @@ export interface AgentOptions {
   toolsFactory?: (input: AgentTurnInput) => ToolRegistry
   actions?: ShopifyActionStore
   handoffs?: HumanSupportStore
+  /** Pre-tool-use guardrails. Defaults to the refund-threshold hook. */
+  toolHooks?: PreToolUseHook[]
 }
 
 const SYSTEM_PROMPT = [
@@ -55,6 +65,7 @@ const SYSTEM_PROMPT = [
   'A human-support record is queued locally awaiting staff pickup. Do not say a staff member has joined or a live transfer occurred.',
   'Item, quantity, product, and discount edits are unsupported. Shipping address changes and cancellation are supported.',
   'Refund and cancellation emails default to off. Never request a customer notification unless the customer explicitly asks for an email, receipt, or notification. Supplying an email for identity verification is not a notification request.',
+  'A refund above the automatic approval limit is escalated to a human for review instead of being proposed. Never claim such a refund was submitted or completed.',
   'Preserve the exact customer-requested refund amount and currency. Never silently clamp an excessive amount to the available balance, omit an explicit amount, or substitute a different amount. If the amount exceeds the refundable balance, explain the limit and ask for a revised request.',
 ].join(' ')
 
@@ -126,6 +137,11 @@ function actionReply(action: ShopifyActionView): string {
   return `${observed}${reference} Recorded status: ${action.status}.${['processing', 'unknown', 'executing'].includes(action.status) ? ' Check Shopify status before requesting another change.' : ''}`
 }
 
+/** Reply text for a refund a pre-tool-use guardrail routed to the human inbox. */
+function escalationReply(reference: string, summary: string): string {
+  return `${summary} I did not submit this refund. It is queued in the local human support inbox for review. Reference: ${reference}. A staff member must review and approve the refund before any payment is returned. No refund has been sent to Shopify, and no live transfer has occurred.`
+}
+
 /**
  * Run one conversational turn: request a completion, execute any tool calls
  * through their owning spoke, then produce a final assistant message. Every
@@ -135,6 +151,7 @@ export function createAgentTurn(options: AgentOptions = {}): AgentRunner {
   const llm = options.llm ?? createOpenRouterClient()
   const maxRounds = options.maxRounds ?? 5
   const hooks = defaultHooks()
+  const toolHooks = options.toolHooks ?? defaultToolHooks()
 
   return async function runTurn(input, emit) {
     emit({ type: 'hook', name: 'agent-turn', phase: 'start' })
@@ -264,6 +281,21 @@ export function createAgentTurn(options: AgentOptions = {}): AgentRunner {
             if (failedCalls.has(fingerprint)) throw new Error('RETRY_BLOCKED: This identical call already failed. Ask for corrected information or human support.')
             if (argumentError) throw argumentError
             if (call.name === 'findCustomer') requireCustomerSuppliedIdentity(args, input.messages)
+            // Pre-tool-use guardrails: a hook may block the call and route it to
+            // a human instead of executing it (docs/security.md §5, §10).
+            const escalation = toolHooks
+              .map((hook) => hook.run({ name: call.name, args }))
+              .find((decision): decision is { decision: 'escalate'; escalation: ToolEscalation } => decision.decision === 'escalate')
+            if (escalation) {
+              if (!input.sessionId) throw new Error('Start a chat session before escalating a refund for human review.')
+              const request = (options.handoffs ?? getHumanSupportStore()).enqueue(input.sessionId, escalation.escalation.summary)
+              emit({ type: 'hook', name: escalation.escalation.hook, phase: 'start', detail: escalation.escalation.summary })
+              emit({ type: 'hook', name: escalation.escalation.hook, phase: 'end' })
+              emit({ type: 'tool_call', id: call.id, name: call.name, phase: 'end', result: `ESCALATED: ${escalation.escalation.summary}`, ok: false })
+              emit({ type: 'subagent', name: spoke, phase: 'end', detail: call.name })
+              emit({ type: 'assistant_message', text: escalationReply(request.id, escalation.escalation.summary) })
+              return
+            }
             result = tool
               ? await tool.run(args, { authorization })
               : `Unknown tool "${call.name}".`
@@ -272,6 +304,29 @@ export function createAgentTurn(options: AgentOptions = {}): AgentRunner {
             ok = false
             failedCalls.add(`${call.name}:${call.argumentsText}`)
             result = error instanceof Error ? error.message : 'Tool failed.'
+          }
+
+          // A full-refund request omits the amount: Shopify computes the exact
+          // balance, so the ceiling is enforced on that resolved amount too.
+          if (ok && call.name === 'createRefund' && (args.amount === undefined || args.amount === null) && input.sessionId) {
+            const proposal = JSON.parse(result) as { pendingAction?: ShopifyActionView }
+            if (proposal.pendingAction) {
+              const store = options.actions ?? getShopifyActionStore()
+              let stored: StoredShopifyAction | undefined
+              try { stored = store.get(proposal.pendingAction.id, input.sessionId) } catch { stored = undefined }
+              const refund = stored?.payload.kind === 'refund' ? stored.payload : undefined
+              if (refund && exceedsRefundLimit(refund.amount)) {
+                store.cancelPending(input.sessionId, stored!.orderId)
+                const summary = refundEscalationSummary(refund.amount, refund.currency, stored!.orderId, refund.reason)
+                const request = (options.handoffs ?? getHumanSupportStore()).enqueue(input.sessionId, summary)
+                emit({ type: 'hook', name: REFUND_ESCALATION_HOOK, phase: 'start', detail: 'Full refund above the automatic approval limit.' })
+                emit({ type: 'hook', name: REFUND_ESCALATION_HOOK, phase: 'end' })
+                emit({ type: 'tool_call', id: call.id, name: call.name, phase: 'end', result: `ESCALATED: ${summary}`, ok: false })
+                emit({ type: 'subagent', name: spoke, phase: 'end', detail: call.name })
+                emit({ type: 'assistant_message', text: escalationReply(request.id, summary) })
+                return
+              }
+            }
           }
 
           let actionEvidence: ShopifyActionView[] | undefined

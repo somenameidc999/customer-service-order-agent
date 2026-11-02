@@ -109,7 +109,9 @@ Product searches return at most 20 active products and 25 variants per product;
 results flag truncated variant lists. Order details flag truncated line-item lists.
 Refunds, shipping-address updates, and cancellations create a review card with the
 exact action and order. Click **Confirm in Shopify** to execute. Refunds and
-cancellations also require the store-operator approval checkbox. The model cannot
+cancellations also require the store-operator approval checkbox. A refund above
+`REFUND_AUTO_APPROVE_MAX` is never proposed: a pre-tool-use hook escalates it to
+the local human support inbox for review instead. The model cannot
 approve a write or supply an executable approval token. Captured payments are not
 refunded by cancellation; request a separate refund when needed. Customer
 notifications default to off and can be included in the proposal when requested.
@@ -142,7 +144,10 @@ Assistant messages render Markdown, including lists, links, code blocks, and
 GitHub-style tables. Raw HTML and remote images are disabled.
 
 Optional settings: `SHOPIFY_ACTIONS_DB` changes the journal path;
-`REFUND_WINDOW_DAYS` restricts refunds to orders inside that window.
+`REFUND_WINDOW_DAYS` restricts refunds to orders inside that window;
+`REFUND_AUTO_APPROVE_MAX` (default `500`) sets the refund ceiling. A refund
+strictly above the ceiling is not proposed: the agent escalates it to the local
+human support inbox for review.
 
 The offline client lives under
 `src/server/testing/` and is used only when tests explicitly inject it.
