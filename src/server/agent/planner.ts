@@ -18,6 +18,7 @@ export type CustomerIntent =
   | 'unsupported_edit'
   | 'action_status'
   | 'cancel_refund'
+  | 'out_of_scope'
 
 export interface TurnPlan {
   intent: CustomerIntent
@@ -42,6 +43,30 @@ const PURCHASE_REFERENCE = /\b(i\s+ordered|i\s+bought|i\s+purchased|my\s+(?:orde
 // Destructive order edits always require human approval, not just customer
 // confirmation (docs/security.md §6, docs/agents.md routing summary).
 const DESTRUCTIVE_EDIT = /\b(cancel|remove|delete)\b/i
+
+/**
+ * Scope guardrail (docs/agents.md "Scope and refusal"). The hub only answers
+ * questions about this store's products, the customer's own orders, and the
+ * tools it can call. Everything else is refused with one fixed sentence before
+ * the model runs, so a prompt injection cannot widen the agent's role.
+ */
+export const OUT_OF_SCOPE_REPLY = 'This is something that I cannot do.'
+
+// "promo code", "order code" and similar are store concepts, not programming tasks.
+const STORE_CODE = /\b(?:discount|promo(?:tional)?|gift|coupon|voucher|referral|access|order|tracking|confirmation|postal|zip|area|country|currency|product)\s+codes?\b/gi
+const CODE_TASK = /\b(?:write|create|generate|debug|fix|refactor|review|optimi[sz]e|build|implement|compile)\b[^.!?\n]{0,40}\b(?:code|script|program(?:ming)?|function|class|snippet|regex|sql|python|javascript|typescript|node\.?js|java|bash|shell|html|css|algorithm|loops?|api endpoint|unit tests?)\b/i
+const CODE_HELP = /\b(?:help(?: me)?|teach me|show me how)\b[^.!?\n]{0,30}\b(?:program(?:ming)?|cod(?:e|ing)|python|javascript|typescript|html|css|sql|regex)\b/i
+const CODE_SUBJECT = /\b(?:python|javascript|typescript|node\.?js|java|bash|shell|sql|regex|html|css)\b[^.!?\n]{0,25}\b(?:script|code|snippet|program|function|query|regex|file)\b/i
+const GENERAL_KNOWLEDGE = /\b(?:capital of|population of|president of|prime minister|weather (?:in|for|today|tomorrow)|stock (?:price|market)|cryptocurrenc(?:y|ies)|who (?:won|invented|discovered)|tell me (?:a )?(?:joke|riddle)|write (?:me )?(?:a |an )?(?:poem|story|essay|song|letter|resume|haiku|limerick)|translate\b[^.!?\n]{0,40}\b(?:into|to)\b|summari[sz]e\b[^.!?\n]{0,30}\b(?:article|text|document|paragraph|essay|story|paper)|homework|book report)\b/i
+const INSTRUCTION_OVERRIDE = /\b(?:ignore|disregard|forget|override|bypass)\b[^.!?\n]{0,30}\b(?:(?:all|any|your|the|these|those|previous|prior|above|earlier|original)\s+){0,3}(?:instructions?|rules?|prompts?|directions?|guidelines?|guardrails?|polic(?:y|ies)|restrictions?)\b|\b(?:reveal|show|print|repeat|display|what (?:are|is|were))\b[^.!?\n]{0,30}\b(?:system prompt|system message|hidden prompt|initial prompt|your (?:instructions|rules|guidelines|prompt))\b|\b(?:repeat|print|output|echo|show)\b[^.!?\n]{0,20}\b(?:everything (?:above|before)|the (?:text|prompt|instructions?) above)\b/i
+const ROLE_TAKEOVER = /\b(?:developer mode|jailbreak(?:en|ed)?|do anything now|you (?:are|'re) (?:now )?(?:dan|jailbroken|unrestricted|unfiltered)|pretend (?:to be|you (?:are|'re))|role[- ]?play(?:ing)? as|act as (?:if|though|a (?:different|new|unrestricted|unfiltered) (?:ai|assistant|model|bot)|an? (?:ai|model|assistant|bot) (?:without|with no|that)))\b/i
+const HARMFUL_TECH = /\b(?:malware|ransomware|keylogger|phishing (?:email|site|page)|ddos|exploit the (?:server|database|system)|hack (?:into|the|my) (?:account|server|website|system|email|database))\b/i
+
+function isOutOfScope(message: string): boolean {
+  const text = message.replace(STORE_CODE, 'promotion')
+  return CODE_TASK.test(text) || CODE_HELP.test(text) || CODE_SUBJECT.test(text) || GENERAL_KNOWLEDGE.test(text) ||
+    INSTRUCTION_OVERRIDE.test(text) || ROLE_TAKEOVER.test(text) || HARMFUL_TECH.test(text)
+}
 
 interface ScopedOperations {
   text: string
@@ -83,7 +108,11 @@ function scopedOperations(message: string): ScopedOperations {
 }
 
 export function classifyIntent(message: string): CustomerIntent {
-  const operations = scopedOperations(message.trim())
+  const trimmed = message.trim()
+  // Scope comes first: an out-of-scope request is refused before it can be read
+  // as an order, refund or edit instruction.
+  if (isOutOfScope(trimmed)) return 'out_of_scope'
+  const operations = scopedOperations(trimmed)
   const text = operations.text
   if ((/^\s*(?:(?:an?|the)\s+)?agent(?:\s+please)?[.!]?\s*$/i.test(text) || /\b(?:speak|talk|connect|transfer)\b.{0,25}\b(?:agent|person)\b/i.test(text) || /\b(?:human|real person|representative|supervisor|support agent|speak to someone|talk to someone)\b/i.test(text)) && !/\b(?:no|not|don't|do not) (?:need|want) (?:a )?human\b/i.test(text)) return 'human_request'
   if (/^\s*(?:please\s+)?(?:stop|wait|hold on|forget it|cancel that|cancel the request)(?:\s+please)?[.!]?\s*$/i.test(message.trim()) || /\b(?:never ?mind|cancel (?:the |my |this )?(?:refund request|cancellation request|request|proposal)|hold off|leave (?:it|the order) (?:alone|unchanged))\b/i.test(text)) return 'withdraw_request'
@@ -114,6 +143,10 @@ export function planTurn(message: string, history: readonly { role: string; cont
     }
   }
   switch (intent) {
+    case 'out_of_scope':
+      return { intent, spokes: [], requiresCustomerIdentification: false, requiresConfirmation: false,
+        requiresHumanApproval: false,
+        summary: 'Refuse the request: the hub only handles this store\'s products, the customer\'s own orders, and its own tools.' }
     case 'human_request':
     case 'withdraw_request':
     case 'unsupported_edit':
@@ -195,6 +228,7 @@ export function planTurn(message: string, history: readonly { role: string; cont
  * of guessing.
  */
 export function planGuidance(plan: TurnPlan): string {
+  if (plan.intent === 'out_of_scope') return `Refuse this request without calling a tool. Reply exactly: "${OUT_OF_SCOPE_REPLY}"`
   if (plan.intent === 'action_status') return 'Call getActionStatus to read and refresh the recorded action outcome. Do not create another action. Status belongs to this session and needs no new order lookup.'
   if (plan.intent === 'cancel_refund') return 'The customer requested cancellation AND a refund. Identify the customer first. Prepare only the cancellation proposal now. Explain captured payments are not refunded by cancellation; the refund is a separate step after cancellation is confirmed. Do not prepare two conflicting proposals. Never claim either operation is complete from a proposal.'
   if (plan.spokes.length === 0) {

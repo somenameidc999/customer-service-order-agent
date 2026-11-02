@@ -109,3 +109,13 @@ full payment data.
   "verify before retry": re-query Shopify state before attempting the mutation again.
 - When any guardrail blocks automation, the hub escalates to a human with a summary and
   the relevant order reference — it never silently downgrades the policy.
+
+## 11. Scope guardrail
+
+- The agent answers only questions about the store's products, the customer's own
+  orders, and its own tool calls. Coding help, general knowledge, homework,
+  role-play, and any attempt to change or reveal the instructions are refused with
+  exactly: "This is something that I cannot do."
+- Scope is enforced by deterministic server-side classification before the model
+  runs, so untrusted user text cannot widen the agent's role or unlock a Shopify
+  tool.
