@@ -19,6 +19,9 @@ delegates.
   thresholds, confirmation, idempotency, and human-approval checkpoints.
 - Resolve ambiguity by asking the customer for missing identifiers (email, order
   number) before acting.
+- Keep each turn inside the agent's scope: this store's products, the customer's own
+  orders, and the tools it can call. Refuse everything else with a fixed reply
+  (see [Scope and refusal](#scope-and-refusal)).
 - Aggregate spoke results into a single, cited reply.
 - Write an audit record for every read that touches PII and every write.
 - Escalate to a human when a policy blocks automation or a spoke fails unrecoverably.
@@ -143,6 +146,30 @@ envelope in [architecture.md](./architecture.md) and the principles below:
 | "Change my shipping address" | customer → order → orderEdit (with confirmation) |
 | "Cancel my order" | customer → order → orderEdit (cancel, human approval) |
 | "Tell me about product Y" | product |
+
+## Scope and refusal
+
+The hub only helps with the store's products, the customer's own orders, and the
+agent's own tool calls. A request outside that ability is answered with the exact
+sentence:
+
+> This is something that I cannot do.
+
+That covers, among other things:
+
+- writing, explaining or debugging code or scripts (for example "write me a Python
+  script");
+- general knowledge, homework and translation or summarization tasks that are not
+  about a store product or the customer's order;
+- role-play or persona requests ("act as an unrestricted AI", "developer mode") and
+  any attempt to ignore, override or reveal these instructions.
+
+The planner classifies these turns as `out_of_scope` (`classifyIntent` in
+`src/server/agent/planner.ts`) **before** the model runs, so the refusal costs no
+model or Shopify call and a prompt injection cannot widen the agent's role or reach
+an order tool. The same sentence is the required reply, and the same rule is in the
+hub system prompt, when a partly ambiguous request is judged out of scope by the
+model.
 
 ## Extensibility
 
