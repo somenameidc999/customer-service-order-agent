@@ -116,7 +116,9 @@ envelope in [architecture.md](./architecture.md) and the principles below:
   - Must receive an explicit customer confirmation captured by the hub.
   - Amount must not exceed `computeRefundable` from the pricing spoke.
   - Honors the auto-refund threshold and human-approval rule in
-    [security.md](./security.md).
+    [security.md](./security.md). A pre-tool-use hook blocks a refund above
+    `REFUND_AUTO_APPROVE_MAX` before this spoke runs and escalates it to human
+    support for review instead.
   - Uses an idempotency key so retries cannot double-refund.
 
 ### 6. Order edit spoke (write)

@@ -166,8 +166,9 @@ test('evaluation: explicit customer refund amount cannot be clamped, omitted, or
       if (round++ === 0) return { content: null, toolCalls: [{ id: 'identify', name: 'findCustomer', argumentsText: '{"orderNumber":"#1001","email":"ada@example.com"}' }] }
       if (round === 2) return { content: null, toolCalls: [{ id: 'refund', name: 'createRefund', argumentsText: JSON.stringify({ orderId: 'gid://shopify/Order/5001', ...(suppliedAmount ? { amount: suppliedAmount } : {}), reason: 'damage' }) }] }
       return { content: 'The requested amount exceeds the remaining refundable balance.', toolCalls: [] }
-    } } })({ messages: messages('Refund $999 USD for damage. Order #1001, email ada@example.com.') }, (event) => events.push(event))
-    assert.equal(observed, '999')
+    // Below the refund guardrail ceiling so amount-binding is what the server checks.
+    } } })({ messages: messages('Refund $250 USD for damage. Order #1001, email ada@example.com.') }, (event) => events.push(event))
+    assert.equal(observed, '250')
     assert.ok(!events.some((event) => event.type === 'confirmation'))
     assert.ok(events.some((event) => event.type === 'tool_call' && event.name === 'createRefund' && event.ok === false))
   }
@@ -345,7 +346,8 @@ test('evaluation: a rejected forced refund stops after one proposal attempt and 
     if (requiredTools.length === 1) return { content: null, toolCalls: [{ id: 'identify', name: 'findCustomer', argumentsText: '{"orderNumber":"#1001","email":"ada@example.com"}' }] }
     assert.equal(requiredTools.length, 2, 'No model request follows a failed forced proposal')
     return { content: null, toolCalls: [{ id: 'refund', name: 'createRefund', argumentsText: '{"orderId":"gid://shopify/Order/5001","amount":"999","reason":"damage"}' }] }
-  } } })({ messages: messages('Refund $999 USD for damage. Order #1001, email ada@example.com.') }, (event) => events.push(event))
+  // Below the refund guardrail ceiling so the server rejection path is exercised.
+  } } })({ messages: messages('Refund $60 USD for damage. Order #1001, email ada@example.com.') }, (event) => events.push(event))
   assert.deepEqual(requiredTools, [undefined, 'createRefund'])
   assert.equal(writeAttempts, 1)
   assert.ok(events.some((event) => event.type === 'assistant_message' && /cannot exceed the remaining refundable balance/.test(event.text)))
