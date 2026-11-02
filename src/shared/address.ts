@@ -3,11 +3,18 @@
 // enforced before a proposal is created and again before any mutation.
 
 /**
- * Match the common spellings of a PO box street line: "PO Box 12", "P.O. Box
- * 12", "P O Box 12", "POBox 12" and "Post Office Box 12". The trailing word
- * boundary keeps street names such as "Boxwood Lane" out of the match.
+ * Match the common spellings of a PO box street line. Besides the long forms
+ * ("PO Box 12", "P.O. Box 12", "P O Box 12", "POBox 12", "Post Office Box
+ * 12") this covers the equally common abbreviations "POB 12" / "P.O.B. 12"
+ * and "Postal Box 12" / "Post Box 12".
+ *
+ * The leading word boundary keeps a stray "box" ("Unit 4, Box 12") or a name
+ * prefixed by an unrelated word out of the match. The trailing lookahead
+ * rejects a following letter so that street names such as "Boxwood Lane" and
+ * words such as "Poblano Way" (or "Postal Boxcar") do not match, while still
+ * detecting the digit-suffixed forms "POB123" and "POBox123".
  */
-const PO_BOX_LINE = /\b(?:p\.?\s*o\.?|post\s*office)\s*box\b/i
+const PO_BOX_LINE = /\b(?:p\.?\s*o\.?\s*b(?:\s*ox)?|post(?:\s*office|al)?\s*box)(?![a-z])/i
 
 /** True when a single address line names a PO box rather than a street. */
 export function isPoBoxLine(value: unknown): boolean {

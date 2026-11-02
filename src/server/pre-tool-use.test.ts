@@ -19,10 +19,17 @@ const shipment = (address1: string) => ({
 })
 
 test('PO box detection covers common spellings but not street names', () => {
-  for (const value of ['PO Box 123', 'P.O. Box 123', 'P O Box 123', 'POBox 123', 'Post Office Box 123', 'Ship to my po box']) {
+  for (const value of [
+    'PO Box 123', 'P.O. Box 123', 'P O Box 123', 'POBox 123', 'Post Office Box 123',
+    'POB 123', 'P.O.B. 123', 'pob 123', 'P O B 123', 'Postal Box 123', 'Post Box 123',
+    'Ship to my po box', 'P.O. Box 123, Unit 4',
+  ]) {
     assert.equal(isPoBoxLine(value), true, `${value} should be detected`)
   }
-  for (const value of ['123 Boxwood Lane', '1 Analytical Way', 'Unit 4, Box 12', '']) {
+  for (const value of [
+    '123 Boxwood Lane', '1 Analytical Way', 'Unit 4, Box 12', '',
+    '5 Poblano Way', '4 P.O. Building', 'Postal Delivery, 5 Elm St',
+  ]) {
     assert.equal(isPoBoxLine(value), false, `${value} should not be detected`)
   }
   assert.equal(isPoBoxLine(undefined), false)
@@ -33,10 +40,12 @@ test('PO box detection covers common spellings but not street names', () => {
 
 test('the address pre-tool-use hook blocks only PO box address updates', async () => {
   const hook = addressPoBoxHook()
-  await assert.rejects(
-    async () => hook.run({ tool: 'updateShippingAddress', args: shipment('PO Box 123') }),
-    (error: Error) => error.message === PO_BOX_BLOCKED_MESSAGE,
-  )
+  for (const spelling of ['PO Box 123', 'POB 123', 'P.O.B. 123', 'Postal Box 123']) {
+    await assert.rejects(
+      async () => hook.run({ tool: 'updateShippingAddress', args: shipment(spelling) }),
+      (error: Error) => error.message === PO_BOX_BLOCKED_MESSAGE,
+    )
+  }
   // A physical address, and every unrelated tool, pass through untouched.
   await hook.run({ tool: 'updateShippingAddress', args: shipment('123 New Street') })
   await hook.run({ tool: 'createRefund', args: shipment('PO Box 123') })
@@ -111,11 +120,26 @@ test('a physical address update still reaches the tool and produces its proposal
   assert.ok(turn.events.some((event) => event.type === 'confirmation'))
 })
 
+test('PO box abbreviation updates are blocked before the tool runs and create no confirmation', async () => {
+  for (const spelling of ['POB 123', 'P.O.B. 123', 'Postal Box 123']) {
+    const turn = addressTurn(spelling)
+    await turn.run()
+
+    assert.equal(turn.ran(), false, `the update tool must never execute for ${spelling}`)
+    const end = turn.events.find((event) => event.type === 'tool_call' && event.name === 'updateShippingAddress' && event.phase === 'end')
+    assert.equal(end?.type === 'tool_call' ? end.ok : undefined, false)
+    assert.match(end?.type === 'tool_call' ? end.result ?? '' : '', /PO box/i)
+    assert.equal(turn.events.some((event) => event.type === 'confirmation'), false)
+  }
+})
+
 test('the Shopify write client independently rejects a PO box address', () => {
-  assert.throws(
-    () => validateAddress({ address1: 'P.O. Box 77', city: 'Portland', zip: '97201', countryCode: 'US' }),
-    /PO box/i,
-  )
+  for (const spelling of ['P.O. Box 77', 'POB 77', 'P.O.B. 77', 'Postal Box 77']) {
+    assert.throws(
+      () => validateAddress({ address1: spelling, city: 'Portland', zip: '97201', countryCode: 'US' }),
+      /PO box/i,
+    )
+  }
   assert.deepEqual(
     validateAddress({ address1: '123 New Street', city: 'Portland', zip: '97201', countryCode: 'US' }),
     { address1: '123 New Street', city: 'Portland', zip: '97201', countryCode: 'US' },
