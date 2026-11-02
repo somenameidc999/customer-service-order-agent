@@ -94,6 +94,46 @@ test('store and order requests that name a programming language are not refused'
   ]) assert.equal(planTurn(prompt).intent, 'out_of_scope', prompt)
 })
 
+test('coding-help requests that mention a store noun are still refused', () => {
+  // P2 follow-up: the store-topic relaxation must only cover a programming
+  // language that describes a store product, not a coding request that merely
+  // mentions a retail noun like "store", "checkout" or "payment".
+  const refused = [
+    "Help me with programming my store's checkout.",
+    "Help me debug my store's payment code.",
+    'Help me debug the checkout code for my store.',
+    'Teach me how to code a checkout for my store.',
+    'Show me how to program my store checkout.',
+  ]
+  for (const prompt of refused) {
+    const plan = planTurn(prompt)
+    assert.equal(plan.intent, 'out_of_scope', prompt)
+    assert.deepEqual(plan.spokes, [], prompt)
+    assert.equal(plan.requiresCustomerIdentification, false, prompt)
+    assert.match(planGuidance(plan), /This is something that I cannot do\./, prompt)
+  }
+})
+
+test('a coding-help request that mentions a store noun never reaches the model or a tool', async () => {
+  const events: AgentEvent[] = []
+  const client = createShopifyFixtureClient()
+  let shopifyCalls = 0
+  client.findCustomer = async () => { shopifyCalls += 1; throw new Error('Shopify must not be called.') }
+  let modelCalls = 0
+  const runTurn = createAgentTurn({ tools: createCommerceToolRegistry(client), llm: { complete: async () => {
+    modelCalls += 1
+    throw new Error('The model must not run for an out-of-scope request.')
+  } } })
+
+  await runTurn({ messages: messages("Help me with programming my store's checkout.") }, (event) => events.push(event))
+
+  assert.equal(modelCalls, 0)
+  assert.equal(shopifyCalls, 0)
+  assert.ok(!events.some((event) => event.type === 'tool_call'))
+  const reply = events.find((event) => event.type === 'assistant_message')
+  assert.equal(reply?.type === 'assistant_message' ? reply.text : '', OUT_OF_SCOPE_REPLY)
+})
+
 test('a general-knowledge question outside the fixed patterns is refused without the model', async () => {
   const prompt = 'What is the tallest mountain in the world?'
   const plan = planTurn(prompt)

@@ -127,4 +127,6 @@ full payment data.
   the model to answer directly.
 - A store or order request that merely names a programming language ("Do you sell a
   Java programming book?") is not treated as a coding request. Only an explicit
-  coding action refuses deterministically.
+  coding action refuses deterministically. The language or code word must describe a
+  store product; a coding request that merely mentions a store noun ("Help me with
+  programming my store's checkout.") is still refused.
