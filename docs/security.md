@@ -73,6 +73,9 @@ Refunds are the highest-risk action. The hub must enforce all of the following:
 - Destructive actions (cancel order, remove line items) always require human approval.
 - Non-destructive edits (shipping address) require customer confirmation and a state
   re-check immediately before the mutation to avoid stale-write races.
+- A pre-tool-use hook rejects an `updateShippingAddress` whose new address is a PO box
+  before any proposal is stored; the Shopify write client enforces the same rule
+  independently.
 
 ## 7. Audit trail
 
