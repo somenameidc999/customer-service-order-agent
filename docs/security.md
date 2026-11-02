@@ -121,4 +121,10 @@ full payment data.
   exactly: "This is something that I cannot do."
 - Scope is enforced by deterministic server-side classification before the model
   runs, so untrusted user text cannot widen the agent's role or unlock a Shopify
-  tool.
+  tool. Wider-world questions such as "What is the tallest mountain in the world?"
+  are refused before the model runs when they name no store or contextual topic,
+  and the no-spoke routing guidance carries the same refusal rule instead of telling
+  the model to answer directly.
+- A store or order request that merely names a programming language ("Do you sell a
+  Java programming book?") is not treated as a coding request. Only an explicit
+  coding action refuses deterministically.

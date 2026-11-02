@@ -62,10 +62,41 @@ const INSTRUCTION_OVERRIDE = /\b(?:ignore|disregard|forget|override|bypass)\b[^.
 const ROLE_TAKEOVER = /\b(?:developer mode|jailbreak(?:en|ed)?|do anything now|you (?:are|'re) (?:now )?(?:dan|jailbroken|unrestricted|unfiltered)|pretend (?:to be|you (?:are|'re))|role[- ]?play(?:ing)? as|act as (?:if|though|a (?:different|new|unrestricted|unfiltered) (?:ai|assistant|model|bot)|an? (?:ai|model|assistant|bot) (?:without|with no|that)))\b/i
 const HARMFUL_TECH = /\b(?:malware|ransomware|keylogger|phishing (?:email|site|page)|ddos|exploit the (?:server|database|system)|hack (?:into|the|my) (?:account|server|website|system|email|database))\b/i
 
+// Retail vocabulary. A request that names a store topic must not be refused just
+// because it also mentions a programming language or asks for help, for example
+// "Do you sell a Java programming book?" or "Help me find the HTML book product."
+const STORE_TOPIC = /\b(?:order|orders|purchase|purchased|buy|buying|bought|sell|selling|sold|shop|store|product|products|item|items|cart|basket|checkout|shipping|ship|shipped|delivery|deliver|delivered|tracking|package|parcel|refund|refunds|return|returns|exchange|cancel|cancellation|address|billing|payment|paid|receipt|invoice|discount|promo|promotion|coupon|voucher|stock|inventory|available|availability|price|pricing|cost|warranty|subscription|membership|size|sizing|color|colour|quantity|gift|material|brand|fit|weight|capacity|dimensions|waterproof|washable|book|books|course|guide|manual)\b/i
+
+// Signals that a question asks about the wider world rather than this store.
+// Combined with the absence of any store or contextual reference, these refuse
+// the common general-knowledge questions the fixed pattern list cannot
+// enumerate, for example "What is the tallest mountain in the world?".
+const GENERAL_FACT = /\b(?:tallest|highest|longest|biggest|largest|smallest|fastest|oldest|deepest|richest|strongest|most populated|most popular)\b\s+\w+|\b(?:meaning of life|speed of light|distance (?:to|from) the|history of|photosynthesis|gravity|evolution|quantum (?:physics|mechanics)|planets?|solar system|galaxy|universe|dinosaurs?|the (?:moon|sun)|weather|(?:roman|british|mongol|ottoman|byzantine|persian|aztec|mayan)\s+empires?|ancient\s+\w+|world\s+wars?|programming)\b/i
+// A pronoun or possessive points back at a product or order already under
+// discussion, so those questions stay in scope even if a word above matches.
+const CONTEXTUAL = /\b(?:it|its|this|that|these|those|my|our|them|their)\b/i
+
+/**
+ * A general-knowledge question that names no store or contextual topic is out
+ * of scope. This narrows the classifier's open-ended gap: a query the fixed
+ * patterns cannot enumerate is refused before the model runs, instead of
+ * reaching it with "Answer directly" guidance.
+ */
+function isGeneralFactQuestion(message: string): boolean {
+  if (!GENERAL_FACT.test(message)) return false
+  if (STORE_TOPIC.test(message) || CONTEXTUAL.test(message)) return false
+  return true
+}
+
 function isOutOfScope(message: string): boolean {
   const text = message.replace(STORE_CODE, 'promotion')
-  return CODE_TASK.test(text) || CODE_HELP.test(text) || CODE_SUBJECT.test(text) || GENERAL_KNOWLEDGE.test(text) ||
-    INSTRUCTION_OVERRIDE.test(text) || ROLE_TAKEOVER.test(text) || HARMFUL_TECH.test(text)
+  if (INSTRUCTION_OVERRIDE.test(text) || ROLE_TAKEOVER.test(text) || HARMFUL_TECH.test(text)) return true
+  if (GENERAL_KNOWLEDGE.test(text)) return true
+  // An explicit coding action is always out of scope. A bare language mention or
+  // a generic "help me" only refuses when the request is not about a store topic.
+  if (CODE_TASK.test(text)) return true
+  if (!STORE_TOPIC.test(text) && (CODE_HELP.test(text) || CODE_SUBJECT.test(text))) return true
+  return isGeneralFactQuestion(message)
 }
 
 interface ScopedOperations {
@@ -217,7 +248,7 @@ export function planTurn(message: string, history: readonly { role: string; cont
         requiresCustomerIdentification: false,
         requiresConfirmation: false,
         requiresHumanApproval: false,
-        summary: 'Answer directly; no Shopify spoke is required.',
+        summary: 'No Shopify spoke is required; answer only in-scope store, order or tool requests.',
       }
   }
 }
@@ -232,7 +263,10 @@ export function planGuidance(plan: TurnPlan): string {
   if (plan.intent === 'action_status') return 'Call getActionStatus to read and refresh the recorded action outcome. Do not create another action. Status belongs to this session and needs no new order lookup.'
   if (plan.intent === 'cancel_refund') return 'The customer requested cancellation AND a refund. Identify the customer first. Prepare only the cancellation proposal now. Explain captured payments are not refunded by cancellation; the refund is a separate step after cancellation is confirmed. Do not prepare two conflicting proposals. Never claim either operation is complete from a proposal.'
   if (plan.spokes.length === 0) {
-    return 'Hub routing for this turn: no Shopify spoke is required. Answer directly.'
+    // Never tell the model to "answer directly": an unclassified request may be
+    // out of scope, so the guidance carries the same deterministic refusal rule
+    // as the system prompt instead of contradicting it.
+    return `Hub routing for this turn: no Shopify spoke is required. Answer only requests about this store's products, the customer's own order, or this application's own tools, and greet the customer or acknowledge small talk normally. For any other request reply exactly "${OUT_OF_SCOPE_REPLY}" without calling a tool.`
   }
   const sequence = plan.spokes.join(' -> ')
   return [

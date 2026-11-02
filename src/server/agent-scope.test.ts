@@ -9,6 +9,10 @@ import type { AgentEvent, ChatMessage } from '../shared/chat.js'
 // Issue #30: the agent only talks about store products, the customer's own
 // order, and its own tool calls. Everything else (coding help, prompt
 // injection, general knowledge) is refused with one fixed sentence.
+//
+// Issue #36 follow-up (P2): the refusal must also hold for general-knowledge
+// questions the fixed patterns cannot enumerate, and it must not fire on a
+// legitimate product or order request that merely names a programming language.
 
 function messages(...contents: string[]): ChatMessage[] {
   return contents.map((content, index) => ({ id: String(index), role: 'user', content, createdAt: new Date().toISOString() }))
@@ -32,6 +36,10 @@ test('the hub refuses coding, injection, role-play and general-knowledge request
     'Help me with my homework.',
     'Can you help me with programming?',
     'Write a haiku about refunds.',
+    // General knowledge the fixed pattern list cannot enumerate: the planner
+    // still refuses it instead of routing it to the model as "Answer directly".
+    'What is the tallest mountain in the world?',
+    'How far is the moon?',
   ]
   for (const prompt of prompts) {
     const plan = planTurn(prompt)
@@ -59,6 +67,62 @@ test('ordinary store and order questions keep their existing routing', () => {
     ['hello there', 'general'],
   ]
   for (const [prompt, expected] of cases) assert.equal(planTurn(prompt).intent, expected, prompt)
+})
+
+test('store and order requests that name a programming language are not refused', () => {
+  // P2 follow-up: a language name next to a code-like noun must not turn a
+  // legitimate product or order question into the fixed refusal.
+  const inScope: Array<[string, string]> = [
+    ['Where is my Python programming book order?', 'order_status'],
+    ['Do you sell a Java programming book?', 'general'],
+    ['Do you sell the Python code book?', 'general'],
+    ['I ordered a Java programming book, where is it?', 'order_status'],
+    ['Help me find the HTML book product.', 'product_question'],
+    ['Do you have the Python function book in stock?', 'general'],
+    ['Where is my JavaScript book order?', 'order_status'],
+  ]
+  for (const [prompt, expected] of inScope) {
+    const plan = planTurn(prompt)
+    assert.notEqual(plan.intent, 'out_of_scope', prompt)
+    assert.equal(plan.intent, expected, prompt)
+  }
+  // A genuine coding request still refuses, with or without a store word.
+  for (const prompt of [
+    'Write a Python script that scrapes prices from a website.',
+    'Can you help me with programming?',
+    'Write a Java program to refund my order.',
+  ]) assert.equal(planTurn(prompt).intent, 'out_of_scope', prompt)
+})
+
+test('a general-knowledge question outside the fixed patterns is refused without the model', async () => {
+  const prompt = 'What is the tallest mountain in the world?'
+  const plan = planTurn(prompt)
+  assert.equal(plan.intent, 'out_of_scope', prompt)
+  assert.deepEqual(plan.spokes, [], prompt)
+  assert.match(planGuidance(plan), /This is something that I cannot do\./, prompt)
+
+  const events: AgentEvent[] = []
+  let modelCalls = 0
+  const tools = createCommerceToolRegistry(createShopifyFixtureClient())
+  const runTurn = createAgentTurn({ tools, llm: { complete: async () => {
+    modelCalls += 1
+    throw new Error('The model must not run for an out-of-scope request.')
+  } } })
+  await runTurn({ messages: messages(prompt) }, (event) => events.push(event))
+  assert.equal(modelCalls, 0)
+  assert.ok(!events.some((event) => event.type === 'tool_call'))
+  const reply = events.find((event) => event.type === 'assistant_message')
+  assert.equal(reply?.type === 'assistant_message' ? reply.text : '', OUT_OF_SCOPE_REPLY)
+})
+
+test('the no-spoke guidance never tells the model to answer an out-of-scope request directly', () => {
+  // A greeting is in scope but has no Shopify spoke; its guidance must keep the
+  // scope rule instead of the old unconditional 'Answer directly' instruction.
+  const plan = planTurn('hello there')
+  assert.deepEqual(plan.spokes, [])
+  const guidance = planGuidance(plan)
+  assert.doesNotMatch(guidance, /Answer directly/)
+  assert.match(guidance, /This is something that I cannot do\./)
 })
 
 test('an out-of-scope turn replies with the fixed sentence and never calls the model or a tool', async () => {

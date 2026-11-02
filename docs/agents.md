@@ -171,6 +171,18 @@ an order tool. The same sentence is the required reply, and the same rule is in 
 hub system prompt, when a partly ambiguous request is judged out of scope by the
 model.
 
+The deterministic classifier is deliberately conservative in both directions:
+
+- Wider-world signals the fixed patterns cannot enumerate (for example a
+  superlative like "What is the tallest mountain in the world?") are refused before
+  the model runs whenever the turn names no store or contextual topic. For anything
+  else the no-spoke guidance never says "answer directly": it carries the same
+  refusal rule as the system prompt.
+- A legitimate product or order request that merely names a programming language,
+  such as "Do you sell a Java programming book?" or "Where is my Python programming
+  book order?", stays in scope. Only an explicit coding action ("write me a Python
+  script") is refused.
+
 ## Extensibility
 
 New spokes (returns, exchanges, subscriptions, discounts) follow the same template:
