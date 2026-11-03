@@ -25,7 +25,7 @@ export function ActionConfirmation({ action, onChange }: { action: ShopifyAction
     } finally { setBusy(false) }
   }
 
-  return <section className={`action-confirmation action-${action.status}`} aria-label={`${action.title} confirmation`}>
+  return <section className={`action-confirmation action-${action.status}`} aria-label={`${action.title} confirmation`} data-action-id={action.id}>
     <div className="action-heading"><strong>{action.title}</strong><span>{pending ? 'Awaiting confirmation' : action.status}</span></div>
     <ul>{action.details.map((detail, index) => <li key={index}>{detail}</li>)}</ul>
     {pending && <>

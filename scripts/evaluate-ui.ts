@@ -39,11 +39,15 @@ try {
     await sync()
     const confirming = new Set<string>()
     const assertActionDisplay = async (action: ShopifyActionView) => {
-      const card = page.locator('.action-confirmation').filter({ has: page.getByText(action.title, { exact: true }) })
-      if (action.status === 'succeeded') {
+      const card = page.locator(`[data-action-id="${action.id}"]`)
+      if (['executing', 'processing', 'unknown', 'failed', 'succeeded'].includes(action.status)) {
         const receipt = page.getByRole('log', { name: 'Chat history' }).locator(`[data-action-receipt="${action.id}"]`)
         await receipt.waitFor({ state: 'visible', timeout: 30000 })
+        await receipt.locator('.action-heading span').filter({ hasText: new RegExp(`^${action.status}$`, 'i') }).waitFor({ state: 'visible' })
+        assert.deepEqual(await receipt.locator('li').allTextContents(), action.details, 'The chat record keeps all reviewed action details')
         if (action.result) assert.ok((await receipt.innerText()).includes(action.result.message), 'The chat receipt shows the confirmed Shopify result')
+        if (action.result?.shopifyId) assert.equal(await receipt.locator('code').innerText(), action.result.shopifyId)
+        assert.equal(await page.locator('.chat-actions').locator(card).count(), 0)
         return
       }
       const expected = action.status === 'pending' ? 'Awaiting confirmation' : action.status
@@ -119,8 +123,7 @@ try {
     try {
       await scenario.run(c)
       for (const action of actions) await assertActionDisplay(action)
-      assert.equal(await page.locator('.action-confirmation.action-succeeded').count(), 0, 'Successful actions leave the pinned area')
-      checks.push('Visible cards and success receipts match persisted server statuses')
+      checks.push('Confirmation cards and full chat action records match persisted server statuses')
     } catch (caught) { error = caught instanceof Error ? caught.message : String(caught) }
     await sync()
     // Capture the actual chat and action cards. Expand the scroll area only so all conversation turns are visible.
