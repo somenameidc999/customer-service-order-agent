@@ -249,6 +249,8 @@ updates `main`, the deploy job waits for those checks and deploys that commit.
 The job serializes deployments and skips a commit if a newer commit is already
 on `main`. The job checks the public health endpoint and confirms that the demo
 requires login. Find the result under **Actions → Check starter**.
+Use **Run workflow** with the `main` branch to run the same checks and deploy
+again if a merge does not start a run.
 
 The job uses the repository secret `FLY_API_TOKEN`. It is scoped to the demo app
 and expires after 8,760 hours (one year). Rotate it before expiry. Run from the
