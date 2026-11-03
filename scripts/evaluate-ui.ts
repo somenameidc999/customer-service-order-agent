@@ -38,6 +38,17 @@ try {
     }
     await sync()
     const confirming = new Set<string>()
+    const assertActionDisplay = async (action: ShopifyActionView) => {
+      const card = page.locator('.action-confirmation').filter({ has: page.getByText(action.title, { exact: true }) })
+      if (action.status === 'succeeded') {
+        const receipt = page.getByRole('log', { name: 'Chat history' }).locator(`[data-action-receipt="${action.id}"]`)
+        await receipt.waitFor({ state: 'visible', timeout: 30000 })
+        if (action.result) assert.ok((await receipt.innerText()).includes(action.result.message), 'The chat receipt shows the confirmed Shopify result')
+        return
+      }
+      const expected = action.status === 'pending' ? 'Awaiting confirmation' : action.status
+      await card.locator('.action-heading span').filter({ hasText: new RegExp(`^${expected}$`, 'i') }).waitFor({ state: 'visible', timeout: 30000 })
+    }
     // A button changes its label while a request is in flight. Wait for the
     // actual response and rendered status, rather than the old label disappearing.
     const clickAction = async (action: ShopifyActionView, operation: 'confirm' | 'check') => {
@@ -49,8 +60,7 @@ try {
       const response = await responsePromise
       assert.equal(response.status(), 200, `UI ${operation} receives a successful action response`)
       const body = await response.json() as { action: ShopifyActionView }
-      const expected = body.action.status === 'pending' ? 'Awaiting confirmation' : body.action.status
-      await card.locator('.action-heading span').filter({ hasText: new RegExp(`^${expected}$`, 'i') }).waitFor({ state: 'visible', timeout: 30000 })
+      await assertActionDisplay(body.action)
       return body.action
     }
     const c: EvaluationContext = {
@@ -108,12 +118,9 @@ try {
     let error: string | undefined
     try {
       await scenario.run(c)
-      for (const action of actions) {
-        const card = page.getByRole('region', { name: `${action.title} confirmation` })
-        const visibleStatus = (await card.locator('.action-heading span').innerText()).toLowerCase()
-        assert.equal(visibleStatus, action.status === 'pending' ? 'awaiting confirmation' : action.status, `UI card matches server status for ${action.title}`)
-      }
-      checks.push('Visible confirmation cards match persisted server statuses')
+      for (const action of actions) await assertActionDisplay(action)
+      assert.equal(await page.locator('.action-confirmation.action-succeeded').count(), 0, 'Successful actions leave the pinned area')
+      checks.push('Visible cards and success receipts match persisted server statuses')
     } catch (caught) { error = caught instanceof Error ? caught.message : String(caught) }
     await sync()
     // Capture the actual chat and action cards. Expand the scroll area only so all conversation turns are visible.
