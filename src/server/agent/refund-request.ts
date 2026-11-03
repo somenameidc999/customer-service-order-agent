@@ -1,4 +1,4 @@
-import { classifyIntent } from './planner.js'
+import { classifyIntent, REFUND_AMOUNT_REVISION } from './planner.js'
 
 const FULL_REFUND = /\b(?:full|entire|all|remaining)\b.{0,30}\b(?:refund|balance|payment|amount)|\brefund\b.{0,30}\b(?:full|entire|all|remaining)\b/i
 
@@ -24,8 +24,10 @@ export function requestedRefundAmount(messages: readonly { role: string; content
     if (FULL_REFUND.test(text)) return undefined
     const number = '(-?\\d[\\d,]*(?:\\.\\d+)?)'
     const code = '(USD|CAD|AUD|NZD|EUR|GBP|JPY|KWD|BHD|CHF|SEK|NOK|DKK|INR)'
+    const revised = new RegExp(`\\brefund(?: amount)?\\s+from\\s+\\$?\\s*${number}(?:\\s*${code})?\\s+to\\s+\\$?\\s*${number}(?:\\s*${code})?`, 'i').exec(text)
+    if (revised) return { amount: revised[3]!.replaceAll(',', ''), ...(revised[4] || revised[2] ? { currency: (revised[4] ?? revised[2])!.toUpperCase() } : {}) }
     // Prefer an amount attached to a refund instruction over other quoted prices.
-    const directed = new RegExp(`\\b(?:refund|reimburse)(?: me)?\\s+(?:of\\s+)?(?:\\$\\s*)?${number}(?:\\s*${code})?`, 'i').exec(text)
+    const directed = new RegExp(`\\b(?:refund|reimburse)(?: me)?(?: amount)?\\s+(?:(?:of|for|to)\\s+)?(?:\\$\\s*)?${number}(?:\\s*${code})?`, 'i').exec(text)
     const symbol = new RegExp(`\\$\\s*${number}(?:\\s*${code})?`, 'i').exec(text)
     const afterCode = new RegExp(`\\b${code}\\s*${number}\\b`, 'i').exec(text)
     const beforeCode = new RegExp(`\\b${number}\\s*${code}\\b`, 'i').exec(text)
@@ -33,6 +35,8 @@ export function requestedRefundAmount(messages: readonly { role: string; content
     const match = directed ?? symbol ?? beforeCode ?? dollars
     if (match) return { amount: match[1]!.replaceAll(',', ''), ...(match[2] ? { currency: match[2].toUpperCase() } : {}) }
     if (afterCode) return { amount: afterCode[2]!.replaceAll(',', ''), currency: afterCode[1]!.toUpperCase() }
+    const revision = REFUND_AMOUNT_REVISION.exec(text)
+    if (revision) return { amount: revision[1]!.replaceAll(',', '') }
   }
   return undefined
 }

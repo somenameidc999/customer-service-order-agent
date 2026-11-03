@@ -127,8 +127,9 @@ results flag truncated variant lists. Order details flag truncated line-item lis
 Refunds, shipping-address updates, and cancellations create a review card with the
 exact action and order. Click **Confirm in Shopify** to execute. Refunds and
 cancellations also require the store-operator approval checkbox. A refund above
-`REFUND_AUTO_APPROVE_MAX` is never proposed: a pre-tool-use hook escalates it to
-the local human support inbox for review instead. The model cannot
+`REFUND_AUTO_APPROVE_MAX` is blocked before a proposal can be saved. The agent
+records the request for human review in the local support inbox. The demo explains
+that email review is unavailable. The model cannot
 approve a write or supply an executable approval token. Captured payments are not
 refunded by cancellation; request a separate refund when needed. Customer
 notifications default to off and can be included in the proposal when requested.
