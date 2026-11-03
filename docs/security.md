@@ -28,6 +28,13 @@ enforce.
 
 ## 3. Authorization
 
+The Fly demo has a shared browser login. `DEMO_PASSWORD` stays in Fly secrets.
+`DEMO_AUTH_REQUIRED=true` rejects startup without that password or a valid HTTPS
+`PUBLIC_ORIGIN`. Only the health endpoint bypasses login. The shared login grants
+operator access to every visitor who knows the password. It does not implement
+separate staff roles. Use synthetic data in a dedicated demo store. See the
+[deployment runbook](fly-deployment.md).
+
 - The agent must authenticate the *conversation* to a customer before disclosing order
   details or performing writes. At minimum, require a strong identifier (order number
   plus matching email/phone) and never disclose another customer's data.
