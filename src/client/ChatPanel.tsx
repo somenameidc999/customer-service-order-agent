@@ -24,6 +24,7 @@ interface UiMessage {
   activities: Activity[]
   pending: boolean
   failed: boolean
+  receipt?: { actionId: string; shopifyId?: string }
 }
 
 function newId(): string {
@@ -109,12 +110,28 @@ export function ChatPanel() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [actions, setActions] = useState<ShopifyActionView[]>([])
+  const pinnedActions = actions.filter((action) => action.status !== 'succeeded')
   const scrollRef = useRef<HTMLDivElement>(null)
   const stickToBottom = useRef(true)
 
   function updateAction(action: ShopifyActionView) {
-    setActions((current) => current.some((entry) => entry.id === action.id)
-      ? current.map((entry) => entry.id === action.id ? action : entry) : [...current, action])
+    setActions((current) => {
+      const previous = current.find((entry) => entry.id === action.id)
+      if (previous?.status === 'succeeded') return current
+      return previous ? current.map((entry) => entry.id === action.id ? action : entry) : [...current, action]
+    })
+    if (action.status !== 'succeeded') return
+
+    const receipt: UiMessage = {
+      id: `receipt-${action.id}`,
+      role: 'assistant',
+      content: action.result?.message ?? `${action.title} succeeded for order ${action.orderName}.`,
+      activities: [],
+      pending: false,
+      failed: false,
+      receipt: { actionId: action.id, shopifyId: action.result?.shopifyId },
+    }
+    setMessages((current) => current.some((message) => message.id === receipt.id) ? current : [...current, receipt])
   }
 
   useEffect(() => {
@@ -123,7 +140,8 @@ export function ChatPanel() {
       .then(async (response) => {
         if (!response.ok) throw new Error('Pending actions could not be loaded. Reload before confirming an order change.')
         const data = await response.json() as { actions: ShopifyActionView[] }
-        setActions(data.actions.reverse())
+        // Keep any streamed updates received while the initial load was in flight.
+        setActions((current) => [...data.actions.slice().reverse().filter((action) => !current.some((entry) => entry.id === action.id)), ...current])
       })
       .catch((caught: unknown) => { if (!controller.signal.aborted) setError(caught instanceof Error ? caught.message : 'Could not load pending actions.') })
     return () => controller.abort()
@@ -147,7 +165,7 @@ export function ChatPanel() {
     const userMessage: UiMessage = { id: newId(), role: 'user', content: text, activities: [], pending: false, failed: false }
     const assistantId = newId()
     const assistantMessage: UiMessage = { id: assistantId, role: 'assistant', content: '', activities: [], pending: true, failed: false }
-    const request = buildChatRequest([...messages, userMessage])
+    const request = buildChatRequest([...messages.filter((message) => !message.receipt), userMessage])
 
     stickToBottom.current = true
     setMessages((current) => [...current, userMessage, assistantMessage])
@@ -269,15 +287,20 @@ export function ChatPanel() {
                   ))}
                 </ul>
               )}
-              {message.content && (message.role === 'assistant' ? <MarkdownMessage text={message.content} /> : <span className="chat-text">{message.content}</span>)}
+              {message.receipt ? (
+                <span className="chat-text" data-action-receipt={message.receipt.actionId}>
+                  {message.content}
+                  {message.receipt.shopifyId && <><br /><code>{message.receipt.shopifyId}</code></>}
+                </span>
+              ) : message.content && (message.role === 'assistant' ? <MarkdownMessage text={message.content} /> : <span className="chat-text">{message.content}</span>)}
               {message.pending && !message.content && <span className="chat-typing">Agent is thinking…</span>}
             </Bubble>
           </div>
         ))}
       </div>
 
-      {actions.length > 0 && <div className="chat-actions" aria-label="Shopify actions">
-        {actions.map((action) => <ActionConfirmation key={action.id} action={action} onChange={updateAction} />)}
+      {pinnedActions.length > 0 && <div className="chat-actions" aria-label="Shopify actions">
+        {pinnedActions.map((action) => <ActionConfirmation key={action.id} action={action} onChange={updateAction} />)}
       </div>}
 
       {error && (

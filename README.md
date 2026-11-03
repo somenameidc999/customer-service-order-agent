@@ -30,6 +30,23 @@ For production, run `npm run build` before `npm start`. Open http://localhost:87
 
 Optional environment variables: `PORT` changes the API port (default `8787`); `HOST` changes the API bind address (default `127.0.0.1`). Set `HOST=0.0.0.0` when deploying to a container. Set `PORT` for `npm run dev` to update both the API and Vite's proxy target. The frontend port is 5173; Vite fails clearly if that port is already in use.
 
+## Deploy a shared demo on Fly.io
+
+The repository includes a production `Dockerfile`, `fly.toml`, and a
+[deployment plan and runbook](docs/fly-deployment.md). The demo uses one Fly Machine
+and a persistent volume for the Shopify action journal and human support inbox.
+Visitors sign in with a shared username and password through the browser's login
+prompt. The default username is `demo`.
+
+Set `DEMO_PASSWORD` through Fly secrets. Set `PUBLIC_ORIGIN` to the demo's HTTPS
+origin. `DEMO_AUTH_REQUIRED=true` in `fly.toml` prevents startup without a password
+and HTTPS origin. `/api/health` stays public for Fly health checks. Local development
+remains open unless `DEMO_PASSWORD` is set in the process environment.
+
+Use a dedicated Shopify demo store. Anyone with the shared password can confirm
+Shopify writes. Follow the runbook to configure secrets, deploy one Machine, verify
+the public URL, and test persistence.
+
 ## Structure
 
 ```text
@@ -131,7 +148,8 @@ uncertain write.
 
 This local app treats the person using its confirmation UI as the store operator.
 It does not implement separate customer/staff accounts. Keep the default loopback
-bind address unless an authenticated access layer is provided.
+bind address for local use. The Fly deployment adds a shared password for trusted
+demo visitors; the password does not create separate staff permissions.
 
 Shopify must grant this app protected customer data access, including order data
 and name/address/email/phone fields, as well as the `read_orders`, `write_orders`,

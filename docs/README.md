@@ -18,6 +18,7 @@ existing Hono + React starter application. The starter (`/` page, `/api/health`,
 | [shopify-integration.md](./shopify-integration.md) | Shopify authentication (client ID/secret → access token), API usage, scopes, rate limits |
 | [security.md](./security.md) | Secret handling, PII, refund authorization guardrails, audit logging, compliance |
 | [implementation-plan.md](./implementation-plan.md) | Phased build plan, work breakdown, dependencies, risks, testing strategy, definition of done |
+| [fly-deployment.md](./fly-deployment.md) | Implemented Fly.io demo deployment, shared login, persistent storage, and verification runbook |
 
 ## Scope of issue #1
 

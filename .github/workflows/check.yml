@@ -18,3 +18,45 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run check
+
+  deploy:
+    name: Deploy Fly.io demo
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: check
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+    concurrency:
+      group: fly-demo
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - name: Check that this commit is still on top of main
+        id: revision
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          latest=$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" --jq .object.sha)
+          if [[ "$latest" == "$GITHUB_SHA" ]]; then
+            echo "current=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "A newer commit is on main. Skipping this deployment."
+          fi
+      - uses: superfly/flyctl-actions/setup-flyctl@98172f70657cb3e15db199af139be99bd3e61200
+        if: steps.revision.outputs.current == 'true'
+      - name: Deploy the checked commit
+        if: steps.revision.outputs.current == 'true'
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: flyctl deploy --remote-only --ha=false --image-label "git-${GITHUB_SHA}"
+      - name: Verify HTTPS health and password protection
+        if: steps.revision.outputs.current == 'true'
+        env:
+          DEMO_URL: https://customer-service-order-agent-demo.fly.dev
+        run: |
+          curl --fail --silent --show-error --retry 5 --retry-all-errors --max-time 20 "$DEMO_URL/api/health" | jq -e '.status == "ok"'
+          status=$(curl --silent --show-error --max-time 20 --output /dev/null --write-out '%{http_code}' "$DEMO_URL/")
+          test "$status" = 401

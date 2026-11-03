@@ -52,7 +52,7 @@ function streamEvent(event: AgentEvent): string {
  * `POST /api/chat` streams an agent turn as server-sent events. Failures are
  * streamed as an explicit `error` event so the interface can keep them visible.
  */
-export function createChatHandler(runTurn: AgentRunner = createAgentTurn()) {
+export function createChatHandler(runTurn: AgentRunner = createAgentTurn(), secureSession = false) {
   return async (c: Context): Promise<Response> => {
     const contentLength = Number(c.req.header('content-length') ?? '0')
     if (contentLength > CHAT_LIMITS.maxRequestBodyBytes) {
@@ -68,7 +68,7 @@ export function createChatHandler(runTurn: AgentRunner = createAgentTurn()) {
 
     const result = validateChatBody(body)
     if (!result.ok) return c.json({ error: result.error }, 400)
-    const sessionId = chatSession(c)
+    const sessionId = chatSession(c, secureSession)
 
     const encoder = new TextEncoder()
     const stream = new ReadableStream<Uint8Array>({
