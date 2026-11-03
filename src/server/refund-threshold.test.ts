@@ -66,7 +66,7 @@ test('an over-threshold refund is escalated to human review and never proposed',
         if (round++ === 0) return { content: null, toolCalls: [{ id: 'identify', name: 'findCustomer', argumentsText: '{"orderNumber":"#1001","email":"ada@example.com"}' }] }
         return { content: null, toolCalls: [{ id: 'refund', name: 'createRefund', argumentsText: '{"orderId":"gid://shopify/Order/5001","amount":"999","reason":"damage"}' }] }
       } } })
-    await run({ sessionId: 'refund-limit', messages: messages('Refund $999 USD for damage. Order #1001, email ada@example.com.') }, (event) => events.push(event))
+    await run({ sessionId: 'refund-limit', messages: messages('Refund my order for damage. Order #1001, email ada@example.com.') }, (event) => events.push(event))
 
     assert.equal(refundCalls, 0, 'the blocked refund never reaches the Shopify refund tool')
     assert.equal(actions.list('refund-limit').length, 0, 'no refund proposal is created')
@@ -75,7 +75,8 @@ test('an over-threshold refund is escalated to human review and never proposed',
     assert.ok(!events.some((event) => event.type === 'confirmation'))
     assert.ok(events.some((event) => event.type === 'hook' && event.name === 'refund-threshold' && event.phase === 'start'))
     const reply = events.find((event) => event.type === 'assistant_message')
-    assert.match(reply?.type === 'assistant_message' ? reply.text : '', /human support inbox for review/i)
+    assert.match(reply?.type === 'assistant_message' ? reply.text : '', /would go to the team for email review/i)
+    assert.match(reply?.type === 'assistant_message' ? reply.text : '', /no email was sent and no refund was processed/i)
     assert.match(reply?.type === 'assistant_message' ? reply.text : '', new RegExp(handoffs.list('refund-limit')[0]!.id))
     assert.doesNotMatch(reply?.type === 'assistant_message' ? reply.text : '', /refund (?:was )?submitted|refund completed/i)
     assert.equal(events[events.length - 1]?.type, 'hook')
@@ -142,9 +143,42 @@ test('a full refund above the threshold is escalated once Shopify resolves the a
     assert.equal(env.handoffs.list('refund-full').length, 1)
     assert.ok(!events.some((event) => event.type === 'confirmation'))
     assert.ok(events.some((event) => event.type === 'hook' && event.name === 'refund-threshold'))
-    const provisional = env.store.list('refund-full')
-    assert.equal(provisional.length, 1)
-    assert.equal(provisional[0]?.status, 'cancelled', 'the provisional proposal cannot execute')
+    assert.equal(env.store.list('refund-full').length, 0, 'the resolved balance is blocked before a proposal is saved')
     assert.equal(env.calls.filter((call) => call.mutation).length, 0)
   } finally { env.close() }
+})
+
+test('a refund revision over the ceiling withdraws the earlier proposal without calling the model', async () => {
+  const env = createEvaluationEnvironment()
+  const sessionId = 'refund-revision'
+  const previous = env.store.prepare({ sessionId, storeDomain: 'test.myshopify.com', orderId: 'order', customerId: 'customer', updatedAt: 'v1',
+    payload: { kind: 'refund', amount: '100.00', currency: 'USD', reason: 'damage', notifyCustomer: false, transactions: [] },
+    title: 'Refund 100.00 USD', details: [], orderName: '#1001',
+  })
+  const events: AgentEvent[] = []
+  try {
+    const run = createAgentTurn({ actions: env.store, handoffs: env.handoffs, llm: {
+      complete: async () => assert.fail('The hook should stop this revision before a model call'),
+    } })
+    await run({ sessionId, messages: messages('Refund $100 for damage on order #1001.', 'Actually, make it 600 instead.') }, (event) => events.push(event))
+    assert.equal(env.store.get(previous.id, sessionId).view.status, 'cancelled')
+    assert.equal(env.store.list(sessionId).length, 1)
+    assert.equal(env.calls.length, 0)
+    assert.ok(events.some((event) => event.type === 'confirmation' && event.action.id === previous.id && event.action.status === 'cancelled'))
+    assert.ok(events.some((event) => event.type === 'assistant_message' && /600 USD.*email review.*no email was sent and no refund was processed/i.test(event.text)))
+    events.length = 0
+    await run({ sessionId, messages: messages('Please update the refund from $100 to $650.') }, (event) => events.push(event))
+    assert.ok(events.some((event) => event.type === 'assistant_message' && /650 USD.*email review/i.test(event.text)))
+  } finally { env.close() }
+})
+
+test('a stored refund above the current ceiling cannot be claimed for execution', () => {
+  const actions = new ShopifyActionStore(':memory:')
+  try {
+    const proposal = actions.prepare({ sessionId: 'legacy', storeDomain: 'test.myshopify.com', orderId: 'order', customerId: 'customer', updatedAt: 'v1',
+      payload: { kind: 'refund', amount: '600.00', currency: 'USD', reason: 'damage', notifyCustomer: false, transactions: [] },
+      title: 'Refund 600.00 USD', details: [], orderName: '#1001',
+    })
+    assert.throws(() => actions.claim(proposal.id, 'legacy', true), /requires human review/i)
+  } finally { actions.close() }
 })

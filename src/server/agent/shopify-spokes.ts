@@ -1,6 +1,7 @@
 import type { ShippingAddress } from '../../shared/actions.js'
 import type { ToolContext, ToolDefinition } from './tools.js'
 import type { VerifiedIdentity } from './authorization.js'
+import { RefundReviewRequired } from './tool-hooks.js'
 import { createShopifyLiveClient } from '../shopify/live-client.js'
 import {
   ShopifyClientError,
@@ -72,6 +73,7 @@ async function runWithEvidence<T>(operation: () => Promise<T>): Promise<string> 
   try {
     return evidence(await operation())
   } catch (error) {
+    if (error instanceof RefundReviewRequired) throw error
     const code = codeOf(error)
     const message = error instanceof Error ? error.message : 'Tool failed.'
     throw new Error(`${code}: ${message}`)

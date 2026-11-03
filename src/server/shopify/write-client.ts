@@ -1,9 +1,12 @@
 import type { ShopifyActionStatus, ShopifyActionView, ShippingAddress } from '../../shared/actions.js'
 import { isPoBoxAddress } from '../../shared/address.js'
+import { createRefundThresholdHook, RefundReviewRequired } from '../agent/tool-hooks.js'
 import { getShopifyActionStore, type ActionPayload, type RefundTransaction, type ShopifyActionStore, type StoredShopifyAction } from './actions.js'
 import { ShopifyClientError, type ShopifyClient } from './client.js'
 import type { ShopifyConfig } from './config.js'
 import { moneyString, moneyUnits } from './money.js'
+
+const refundThreshold = createRefundThresholdHook()
 
 interface Money { amount: string; currencyCode: string }
 interface RefundRecord {
@@ -197,6 +200,8 @@ export function createShopifyWrites(options: WriteOptions): Pick<ShopifyClient, 
       if (!requested) invalid('Shopify could not calculate a refund amount.')
       const units = moneyUnits(requested, actualCurrency)
       const normalized = moneyString(units, actualCurrency)
+      const review = refundThreshold.run({ name: 'createRefund', args: { amount: normalized, currency: actualCurrency, orderId: raw.name, reason } })
+      if (review.decision === 'escalate') throw new RefundReviewRequired(review.escalation)
       return { kind: 'refund', amount: normalized, currency: actualCurrency, reason: trim(reason), notifyCustomer, transactions: allocate(raw, normalized, actualCurrency) }
     }, true),
     updateShippingAddress: ({ orderId, address }) => prepare(orderId, (raw) => {

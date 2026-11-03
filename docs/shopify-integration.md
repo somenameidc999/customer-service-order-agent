@@ -193,10 +193,11 @@ addresses needed to execute the confirmed change.
 The current app is local and treats its human UI user as the store operator.
 Separate customer/staff authentication is required before exposing approval
 controls to external customers. Every refund requires explicit operator approval.
-A refund above `REFUND_AUTO_APPROVE_MAX` (default `500`) is blocked by a
-pre-tool-use hook and escalated to the local human support inbox for review instead
-of being proposed. Line-item edits and fully automated refund policies remain
-roadmap work.
+The refund pre-tool-use hook blocks new and revised amounts above
+`REFUND_AUTO_APPROVE_MAX` (default `500`). Full refunds use the balance read
+from Shopify and apply the same limit before saving a proposal. The demo records
+blocked requests in its local support inbox and explains that email review is
+unavailable. Line-item edits and fully automated refund policies remain roadmap work.
 
 Queries use the pinned `2026-10` schema. See Shopify's
 [product query](https://shopify.dev/docs/api/admin-graphql/2026-10/queries/products),

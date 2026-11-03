@@ -13,6 +13,7 @@ kill_timeout = 120
   PORT = "8787"
   DEMO_AUTH_REQUIRED = "true"
   DEMO_USERNAME = "demo"
+  REFUND_AUTO_APPROVE_MAX = "500"
   PUBLIC_ORIGIN = "https://customer-service-order-agent-demo.fly.dev"
   SHOPIFY_ACTIONS_DB = "/data/shopify-actions.sqlite"
   HUMAN_SUPPORT_DB = "/data/human-support.sqlite"

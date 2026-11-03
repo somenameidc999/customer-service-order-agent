@@ -168,19 +168,24 @@ export function classifyIntent(message: string): CustomerIntent {
   return 'general'
 }
 
+export const REFUND_AMOUNT_REVISION = /^\s*(?:(?:actually|please)[, ]+)?(?:make it|change it to|update it to)\s+\$?\s*(\d[\d,]*(?:\.\d+)?)(?:\s+instead)?[.!]?\s*$/i
+
 /**
  * Build the spoke plan for one customer message. The order encodes the hub's
  * sequencing rules: identity before order data, and order data before a write.
  */
 export function planTurn(message: string, history: readonly { role: string; content: string }[] = []): TurnPlan {
   let intent = classifyIntent(message)
+  const contextualReply = /(?:#[a-z0-9-]+|[\w.+-]+@[\w.-]+\.[a-z]{2,}|\b(?:yes|please|that one|go ahead)\b|\$\s*-?\d|\b(?:USD|CAD|EUR|GBP|JPY)\s*\d|\d{4,})/i.test(message)
   // A reply containing identifiers continues the most recent customer task. Never
   // infer authorization from history; findCustomer must still run in this turn.
-  if (intent === 'general' && /(?:#[a-z0-9-]+|[\w.+-]+@[\w.-]+\.[a-z]{2,}|\b(?:yes|please|that one|go ahead)\b|\$\s*-?\d|\b(?:USD|CAD|EUR|GBP|JPY)\s*\d|\d{4,})/i.test(message)) {
+  if (intent === 'general' && (contextualReply || REFUND_AMOUNT_REVISION.test(message))) {
     const users = history.filter((entry) => entry.role === 'user' && entry.content !== message)
     for (const previous of users.slice().reverse()) {
       const prior = classifyIntent(previous.content)
-      if (prior !== 'general') { intent = prior; break }
+      if (prior === 'general') continue
+      if (contextualReply || prior === 'refund_request') intent = prior
+      break
     }
   }
   switch (intent) {

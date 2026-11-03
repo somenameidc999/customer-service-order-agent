@@ -65,10 +65,11 @@ Refunds are the highest-risk action. The hub must enforce all of the following:
 4. **Auto-approval threshold.** Refunds at or below `REFUND_AUTO_APPROVE_MAX`
    (default `500`, configurable through the environment) follow the normal
    confirmation flow after the customer confirms.
-5. **Human approval.** Refunds strictly above the threshold are blocked by a
-   pre-tool-use hook (`src/server/agent/tool-hooks.ts`) before the refund tool runs.
-   The hub escalates them to the local human support inbox for review; no refund
-   proposal is created and no payment is returned until a human approves. Refunds
+5. **Human approval.** The refund pre-tool-use hook blocks new and revised refund
+   amounts above the threshold. For a full refund, the server checks the amount
+   after reading the balance from Shopify and before saving a proposal. A blocked
+   revision withdraws the earlier refund proposal. The hub records the request in
+   the local support inbox and explains that the demo has no email review service. Refunds
    flagged as risky (repeat refunds, mismatched customer, unusual amount) likewise
    require an explicit human approval recorded in the audit log before execution.
 6. **Verified quote.** Model-supplied amounts are untrusted requests. The server

@@ -50,6 +50,13 @@ export interface ToolEscalation {
   summary: string
 }
 
+export class RefundReviewRequired extends Error {
+  constructor(readonly escalation: ToolEscalation) {
+    super(escalation.summary)
+    this.name = 'RefundReviewRequired'
+  }
+}
+
 export type PreToolUseDecision =
   | { decision: 'allow' }
   | { decision: 'escalate'; escalation: ToolEscalation }
@@ -68,13 +75,16 @@ export function refundEscalationSummary(
   reason: string,
   max: number = refundAutoApproveMax(),
 ): string {
-  return `Refund of ${amount} ${currency} on order ${orderId} is above the ${max} ${currency} automatic approval limit. Reason: ${reason}. A human must review the refund before any payment is returned.`
+  const order = orderId ? ` for order ${orderId}` : ''
+  const explanation = reason ? ` Reason: ${reason}.` : ''
+  return `The requested refund of ${amount} ${currency}${order} is above the ${max} ${currency} limit and requires human review.${explanation}`
 }
 
 /**
  * Block a refund whose explicit amount is above the ceiling. A full-refund
  * request omits the amount because Shopify computes the exact balance; that
- * resolved amount is checked once the proposal exists.
+ * resolved amount is checked before saving a proposal. Revisions use the
+ * same createRefund tool and replace the previous proposal.
  */
 export function createRefundThresholdHook(options: { max?: number } = {}): PreToolUseHook {
   return {
@@ -85,8 +95,8 @@ export function createRefundThresholdHook(options: { max?: number } = {}): PreTo
       const amount = refundAmount(args.amount)
       if (amount === undefined || amount <= max) return { decision: 'allow' }
       const currency = typeof args.currency === 'string' && args.currency.trim() ? args.currency.trim().toUpperCase() : 'USD'
-      const orderId = typeof args.orderId === 'string' && args.orderId.trim() ? args.orderId.trim() : 'the order'
-      const reason = typeof args.reason === 'string' && args.reason.trim() ? args.reason.trim() : 'not provided'
+      const orderId = typeof args.orderId === 'string' ? args.orderId.trim() : ''
+      const reason = typeof args.reason === 'string' ? args.reason.trim() : ''
       return {
         decision: 'escalate',
         escalation: {

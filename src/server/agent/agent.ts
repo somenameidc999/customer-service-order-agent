@@ -4,16 +4,14 @@ import { requireCustomerSuppliedIdentity } from './customer-identification.js'
 import { createAuthorizationContext } from './authorization.js'
 import { createOpenRouterClient, type LlmClient, type LlmMessage } from './openrouter.js'
 import { requestedCustomerNotification, requestedFullRefund, requestedRefundAmount } from './refund-request.js'
-import { OUT_OF_SCOPE_REPLY, planGuidance, planTurn } from './planner.js'
-import { getShopifyActionStore, type ShopifyActionStore, type StoredShopifyAction } from '../shopify/actions.js'
+import { OUT_OF_SCOPE_REPLY, REFUND_AMOUNT_REVISION, planGuidance, planTurn } from './planner.js'
+import { getShopifyActionStore, type ShopifyActionStore } from '../shopify/actions.js'
 import { getHumanSupportStore, type HumanSupportStore } from './handoff.js'
 import { createCommerceToolRegistry, type ToolRegistry } from './tools.js'
 import { defaultPreToolUseHooks, type PreToolUseHook } from './pre-tool-use.js'
 import {
-  REFUND_ESCALATION_HOOK,
   defaultToolHooks,
-  exceedsRefundLimit,
-  refundEscalationSummary,
+  RefundReviewRequired,
   type PreToolUseHook as RefundPreToolUseHook,
   type ToolEscalation,
 } from './tool-hooks.js'
@@ -145,8 +143,9 @@ function actionReply(action: ShopifyActionView): string {
 }
 
 /** Reply text for a refund a pre-tool-use guardrail routed to the human inbox. */
-function escalationReply(reference: string, summary: string): string {
-  return `${summary} I did not submit this refund. It is queued in the local human support inbox for review. Reference: ${reference}. A staff member must review and approve the refund before any payment is returned. No refund has been sent to Shopify, and no live transfer has occurred.`
+function escalationReply(summary: string, reference?: string): string {
+  const record = reference ? ` The request is recorded in the local support inbox. Reference: ${reference}.` : ''
+  return `${summary}${record} This request would go to the team for email review. Email review is not connected in this demo, so no email was sent and no refund was processed.`
 }
 
 /**
@@ -217,6 +216,36 @@ export function createAgentTurn(options: AgentOptions = {}): AgentRunner {
       const protectedTools = new Set(['getCustomer', 'getOrder', 'getOrderByNumber', 'listCustomerOrders', 'listOrderRefunds', 'updateShippingAddress', 'cancelOrder', 'createRefund'])
       const taskText = input.messages.filter((entry) => entry.role === 'user').slice().reverse()
         .find((entry) => planTurn(entry.content).intent === plan.intent)?.content ?? lastUserMessage(input.messages)
+      const explicitAction = !/\b(?:how much|how does|what would|can i|could i|am i able|to know|what happens)\b/i.test(taskText) &&
+        /(?:^|[.!?]\s*)(?:please\s+)?(?:refund|reimburse|cancel)\b|\b(?:i (?:want|need|would like)|give me|(?:can|could|would|will) you (?:please )?(?:refund|cancel))\b/i.test(taskText)
+
+      function checkTool(name: string, args: Record<string, unknown>) {
+        for (const hook of toolHooks) {
+          const decision = hook.run({ name, args })
+          if (decision.decision === 'escalate') return decision.escalation
+        }
+      }
+
+      function escalateRefund(escalation: ToolEscalation, orderId?: string) {
+        emit({ type: 'hook', name: escalation.hook, phase: 'start', detail: escalation.summary })
+        let reference: string | undefined
+        if (input.sessionId) {
+          const withdrawn = (options.actions ?? getShopifyActionStore()).cancelPending(input.sessionId, orderId, 'refund')
+          for (const action of withdrawn) emit({ type: 'confirmation', action })
+          reference = (options.handoffs ?? getHumanSupportStore()).enqueue(input.sessionId, escalation.summary).id
+        }
+        emit({ type: 'hook', name: escalation.hook, phase: 'end' })
+        emit({ type: 'assistant_message', text: escalationReply(escalation.summary, reference) })
+      }
+
+      // The requested amount is already known. Run the same hook before asking
+      // for identity or sending a blocked refund request to the model.
+      const latest = lastUserMessage(input.messages)
+      const refundRevision = REFUND_AMOUNT_REVISION.test(latest) || /^(?:(?:actually|please)[, ]+)*(?:change|update|revise|increase)\b.{0,30}\brefund\b/i.test(latest)
+      if (refundAmount && (explicitAction || refundRevision)) {
+        const escalation = checkTool('createRefund', { ...refundAmount })
+        if (escalation) { escalateRefund(escalation); return }
+      }
       const writeAllowed = (name: string) => {
         if (name === 'createRefund') return plan.intent === 'refund_request'
         if (name === 'cancelOrder') return plan.intent === 'cancel_refund' || (plan.intent === 'order_edit' && /\bcancel\b/i.test(taskText))
@@ -241,10 +270,8 @@ export function createAgentTurn(options: AgentOptions = {}): AgentRunner {
 
         const available = tools.specs.filter((spec) => isAvailable(spec.name))
         const offered = new Set(available.map((spec) => spec.name))
-        const explicitAction = !/\b(?:how much|how does|what would|can i|could i|am i able|to know|what happens)\b/i.test(taskText) &&
-          /(?:^|[.!?]\s*)(?:please\s+)?(?:refund|reimburse|cancel)\b|\b(?:i (?:want|need|would like)|give me|(?:can|could|would|will) you (?:please )?(?:refund|cancel))\b/i.test(taskText)
         const requiredTool = plan.intent === 'action_status' ? 'getActionStatus'
-          : authorization.identity && explicitAction && plan.intent === 'refund_request' && (refundAmount || fullRefund) ? 'createRefund'
+          : authorization.identity && (explicitAction || refundRevision) && plan.intent === 'refund_request' && (refundAmount || fullRefund) ? 'createRefund'
           : authorization.identity && explicitAction && (plan.intent === 'cancel_refund' || (plan.intent === 'order_edit' && /\bcancel\b/i.test(taskText))) ? 'cancelOrder'
           : undefined
         const completion = await llm.complete({ messages, tools: available, ...(requiredTool && offered.has(requiredTool) ? { requiredTool } : {}) })
@@ -306,50 +333,23 @@ export function createAgentTurn(options: AgentOptions = {}): AgentRunner {
             if (call.name === 'findCustomer') requireCustomerSuppliedIdentity(args, input.messages)
             // Pre-tool-use guardrails: a hook may block the call and route it to
             // a human instead of executing it (docs/security.md §5, §10).
-            const escalation = toolHooks
-              .map((hook) => hook.run({ name: call.name, args }))
-              .find((decision): decision is { decision: 'escalate'; escalation: ToolEscalation } => decision.decision === 'escalate')
-            if (escalation) {
-              if (!input.sessionId) throw new Error('Start a chat session before escalating a refund for human review.')
-              const request = (options.handoffs ?? getHumanSupportStore()).enqueue(input.sessionId, escalation.escalation.summary)
-              emit({ type: 'hook', name: escalation.escalation.hook, phase: 'start', detail: escalation.escalation.summary })
-              emit({ type: 'hook', name: escalation.escalation.hook, phase: 'end' })
-              emit({ type: 'tool_call', id: call.id, name: call.name, phase: 'end', result: `ESCALATED: ${escalation.escalation.summary}`, ok: false })
-              emit({ type: 'subagent', name: spoke, phase: 'end', detail: call.name })
-              emit({ type: 'assistant_message', text: escalationReply(request.id, escalation.escalation.summary) })
-              return
-            }
+            const escalation = checkTool(call.name, args)
+            if (escalation) throw new RefundReviewRequired(escalation)
             result = tool
               ? await tool.run(args, { authorization })
               : `Unknown tool "${call.name}".`
             if (!tool) ok = false
           } catch (error) {
+            if (error instanceof RefundReviewRequired) {
+              emit({ type: 'tool_call', id: call.id, name: call.name, phase: 'end', result: `ESCALATED: ${error.message}`, ok: false })
+              emit({ type: 'subagent', name: spoke, phase: 'end', detail: call.name })
+              const orderId = typeof args.orderId === 'string' && authorization.identity?.orderIds.has(args.orderId) ? args.orderId : undefined
+              escalateRefund(error.escalation, orderId)
+              return
+            }
             ok = false
             failedCalls.add(`${call.name}:${call.argumentsText}`)
             result = error instanceof Error ? error.message : 'Tool failed.'
-          }
-
-          // A full-refund request omits the amount: Shopify computes the exact
-          // balance, so the ceiling is enforced on that resolved amount too.
-          if (ok && call.name === 'createRefund' && (args.amount === undefined || args.amount === null) && input.sessionId) {
-            const proposal = JSON.parse(result) as { pendingAction?: ShopifyActionView }
-            if (proposal.pendingAction) {
-              const store = options.actions ?? getShopifyActionStore()
-              let stored: StoredShopifyAction | undefined
-              try { stored = store.get(proposal.pendingAction.id, input.sessionId) } catch { stored = undefined }
-              const refund = stored?.payload.kind === 'refund' ? stored.payload : undefined
-              if (refund && exceedsRefundLimit(refund.amount)) {
-                store.cancelPending(input.sessionId, stored!.orderId)
-                const summary = refundEscalationSummary(refund.amount, refund.currency, stored!.orderId, refund.reason)
-                const request = (options.handoffs ?? getHumanSupportStore()).enqueue(input.sessionId, summary)
-                emit({ type: 'hook', name: REFUND_ESCALATION_HOOK, phase: 'start', detail: 'Full refund above the automatic approval limit.' })
-                emit({ type: 'hook', name: REFUND_ESCALATION_HOOK, phase: 'end' })
-                emit({ type: 'tool_call', id: call.id, name: call.name, phase: 'end', result: `ESCALATED: ${summary}`, ok: false })
-                emit({ type: 'subagent', name: spoke, phase: 'end', detail: call.name })
-                emit({ type: 'assistant_message', text: escalationReply(request.id, summary) })
-                return
-              }
-            }
           }
 
           let actionEvidence: ShopifyActionView[] | undefined

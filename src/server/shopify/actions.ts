@@ -1,4 +1,5 @@
 import { DatabaseSync } from 'node:sqlite'
+import { exceedsRefundLimit } from '../agent/tool-hooks.js'
 import { createHash, randomUUID } from 'node:crypto'
 import { chmodSync, mkdirSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
@@ -88,6 +89,9 @@ export class ShopifyActionStore {
   claim(id: string, sessionId: string, approved: boolean): StoredShopifyAction {
     const action = this.get(id, sessionId)
     if (action.view.status !== 'pending') throw new ActionError('This action has already been confirmed or is no longer available.')
+    if (action.payload.kind === 'refund' && exceedsRefundLimit(action.payload.amount)) {
+      throw new ActionError('This refund requires human review. Email review is not connected in this demo. No refund was processed.')
+    }
     if (action.view.requiresApproval && !approved) throw new ActionError('Approve this action as the store operator before confirming.', 400)
     this.db.exec('BEGIN IMMEDIATE')
     try {
@@ -122,14 +126,13 @@ export class ShopifyActionStore {
   }
 
   /** Withdraw only unexecuted proposals. Executing or uncertain writes stay blocked. */
-  cancelPending(sessionId: string, orderId?: string): ShopifyActionView[] {
+  cancelPending(sessionId: string, orderId?: string, kind?: ActionPayload['kind']): ShopifyActionView[] {
     const rows = orderId
       ? this.db.prepare("SELECT document FROM actions WHERE session_id=? AND order_id=? AND status='pending'").all(sessionId, orderId)
       : this.db.prepare("SELECT document FROM actions WHERE session_id=? AND status='pending'").all(sessionId)
-    return rows.map((row) => {
-      const action = JSON.parse(String(row.document)) as StoredShopifyAction
-      return this.finish(action, 'cancelled').view
-    })
+    return rows.map((row) => JSON.parse(String(row.document)) as StoredShopifyAction)
+      .filter((action) => !kind || action.payload.kind === kind)
+      .map((action) => this.finish(action, 'cancelled').view)
   }
 
   cancel(id: string, sessionId: string): ShopifyActionView {
