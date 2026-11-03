@@ -271,3 +271,4 @@ footer svg { width: 13px; height: 13px; color: #6e815d; }
 .action-failed, .action-unknown { border-color: #b03a2e; }
 .action-succeeded { border-color: #4c7a45; }
 .action-confirmation code { overflow-wrap: anywhere; }
+.chat-action-record .action-confirmation { border: 0; background: transparent; margin: 0; padding: 0; font-size: 13px; overflow-wrap: anywhere; }

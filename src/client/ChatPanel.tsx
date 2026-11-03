@@ -24,8 +24,12 @@ interface UiMessage {
   activities: Activity[]
   pending: boolean
   failed: boolean
-  receipt?: { actionId: string; shopifyId?: string }
+  actionId?: string
 }
+
+const submittedStatuses: ReadonlySet<ShopifyActionView['status']> = new Set([
+  'executing', 'processing', 'unknown', 'failed', 'succeeded',
+])
 
 function newId(): string {
   return globalThis.crypto?.randomUUID?.() ?? `id-${Date.now()}-${Math.random().toString(16).slice(2)}`
@@ -110,7 +114,9 @@ export function ChatPanel() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [actions, setActions] = useState<ShopifyActionView[]>([])
-  const pinnedActions = actions.filter((action) => action.status !== 'succeeded')
+  const actionsById = new Map(actions.map((action) => [action.id, action]))
+  const actionMessages = new Set(messages.map((message) => message.actionId))
+  const pinnedActions = actions.filter((action) => action.status !== 'succeeded' && !actionMessages.has(action.id))
   const scrollRef = useRef<HTMLDivElement>(null)
   const stickToBottom = useRef(true)
 
@@ -120,18 +126,18 @@ export function ChatPanel() {
       if (previous?.status === 'succeeded') return current
       return previous ? current.map((entry) => entry.id === action.id ? action : entry) : [...current, action]
     })
-    if (action.status !== 'succeeded') return
+    if (!submittedStatuses.has(action.status)) return
 
-    const receipt: UiMessage = {
-      id: `receipt-${action.id}`,
+    const record: UiMessage = {
+      id: `action-${action.id}`,
       role: 'assistant',
-      content: action.result?.message ?? `${action.title} succeeded for order ${action.orderName}.`,
+      content: '',
       activities: [],
       pending: false,
       failed: false,
-      receipt: { actionId: action.id, shopifyId: action.result?.shopifyId },
+      actionId: action.id,
     }
-    setMessages((current) => current.some((message) => message.id === receipt.id) ? current : [...current, receipt])
+    setMessages((current) => current.some((message) => message.id === record.id) ? current : [...current, record])
   }
 
   useEffect(() => {
@@ -150,7 +156,7 @@ export function ChatPanel() {
   useEffect(() => {
     const node = scrollRef.current
     if (node && stickToBottom.current) node.scrollTop = node.scrollHeight
-  }, [messages])
+  }, [messages, actions])
 
   function onScroll() {
     const node = scrollRef.current
@@ -165,7 +171,7 @@ export function ChatPanel() {
     const userMessage: UiMessage = { id: newId(), role: 'user', content: text, activities: [], pending: false, failed: false }
     const assistantId = newId()
     const assistantMessage: UiMessage = { id: assistantId, role: 'assistant', content: '', activities: [], pending: true, failed: false }
-    const request = buildChatRequest([...messages.filter((message) => !message.receipt), userMessage])
+    const request = buildChatRequest([...messages.filter((message) => !message.actionId), userMessage])
 
     stickToBottom.current = true
     setMessages((current) => [...current, userMessage, assistantMessage])
@@ -261,42 +267,44 @@ export function ChatPanel() {
             <p className="chat-empty-hint">Tool calls, subagents and hooks appear in the history as they run.</p>
           </div>
         )}
-        {messages.map((message) => (
-          <div key={message.id} className={`chat-message chat-message-${message.role}`}>
-            <Bubble
-              direction={message.role === 'user' ? 'right' : 'left'}
-              bg={message.role === 'user' ? '#f2a38d' : '#fffdf5'}
-              borderColor={ink}
-              textColor={ink}
-              className="chat-bubble"
-            >
-              <span className="chat-role">{message.role === 'user' ? 'You' : 'Agent'}</span>
-              {message.activities.length > 0 && (
-                <ul className="chat-activities" aria-label={`${message.role === 'user' ? 'You' : 'Agent'} activity`}>
-                  {message.activities.map((activity) => (
-                    <li key={activity.id} className={`chat-activity chat-activity-${activity.kind} is-${activity.status}`}>
-                      <span className="chat-activity-icon" aria-hidden="true">
-                        {activity.kind === 'tool' ? '⚙' : activity.kind === 'subagent' ? '⛓' : '⚑'}
-                      </span>
-                      <span className="chat-activity-label">{activity.label}</span>
-                      <span className="chat-activity-status">
-                        {activity.status === 'running' ? 'running…' : activity.status === 'error' ? 'failed' : 'done'}
-                      </span>
-                      {activity.detail && <span className="chat-activity-detail">{activity.detail}</span>}
-                    </li>
-                  ))}
-                </ul>
-              )}
-              {message.receipt ? (
-                <span className="chat-text" data-action-receipt={message.receipt.actionId}>
-                  {message.content}
-                  {message.receipt.shopifyId && <><br /><code>{message.receipt.shopifyId}</code></>}
-                </span>
-              ) : message.content && (message.role === 'assistant' ? <MarkdownMessage text={message.content} /> : <span className="chat-text">{message.content}</span>)}
-              {message.pending && !message.content && <span className="chat-typing">Agent is thinking…</span>}
-            </Bubble>
-          </div>
-        ))}
+        {messages.map((message) => {
+          const action = message.actionId ? actionsById.get(message.actionId) : undefined
+          return (
+            <div key={message.id} className={`chat-message chat-message-${message.role}`}>
+              <Bubble
+                direction={message.role === 'user' ? 'right' : 'left'}
+                bg={message.role === 'user' ? '#f2a38d' : '#fffdf5'}
+                borderColor={ink}
+                textColor={ink}
+                className="chat-bubble"
+              >
+                <span className="chat-role">{message.role === 'user' ? 'You' : 'Agent'}</span>
+                {message.activities.length > 0 && (
+                  <ul className="chat-activities" aria-label={`${message.role === 'user' ? 'You' : 'Agent'} activity`}>
+                    {message.activities.map((activity) => (
+                      <li key={activity.id} className={`chat-activity chat-activity-${activity.kind} is-${activity.status}`}>
+                        <span className="chat-activity-icon" aria-hidden="true">
+                          {activity.kind === 'tool' ? '⚙' : activity.kind === 'subagent' ? '⛓' : '⚑'}
+                        </span>
+                        <span className="chat-activity-label">{activity.label}</span>
+                        <span className="chat-activity-status">
+                          {activity.status === 'running' ? 'running…' : activity.status === 'error' ? 'failed' : 'done'}
+                        </span>
+                        {activity.detail && <span className="chat-activity-detail">{activity.detail}</span>}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {action ? (
+                  <div className="chat-action-record" data-action-receipt={action.id}>
+                    <ActionConfirmation action={action} onChange={updateAction} />
+                  </div>
+                ) : message.content && (message.role === 'assistant' ? <MarkdownMessage text={message.content} /> : <span className="chat-text">{message.content}</span>)}
+                {message.pending && !message.content && <span className="chat-typing">Agent is thinking…</span>}
+              </Bubble>
+            </div>
+          )
+        })}
       </div>
 
       {pinnedActions.length > 0 && <div className="chat-actions" aria-label="Shopify actions">
