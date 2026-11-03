@@ -29,6 +29,31 @@ const rawProduct = {
 }
 function json(body: unknown, status = 200): Response { return Response.json(body, { status }) }
 
+test('chat cancellation reaches Shopify token and GraphQL requests', async () => {
+  for (const accessToken of [null, 'dummy-token']) {
+    const abort = new AbortController()
+    let calls = 0
+    let destination = ''
+    let requestSignal: AbortSignal | null | undefined
+    const client = createShopifyLiveClient({
+      config: { ...config, accessToken },
+      signal: abort.signal,
+      fetch: async (input, init) => {
+        calls++
+        destination = String(input)
+        requestSignal = init?.signal
+        abort.abort()
+        throw abort.signal.reason
+      },
+    })
+    await assert.rejects(client.searchProducts({ query: 'pillow' }))
+    await assert.rejects(client.searchProducts({ query: 'blanket' }))
+    assert.match(destination, accessToken ? /\/graphql\.json$/ : /\/oauth\/access_token$/)
+    assert.equal(requestSignal?.aborted, true)
+    assert.equal(calls, 1)
+  }
+})
+
 function transport(handler: (body: { query: string; variables: Record<string, unknown> }) => Response) {
   const calls: Array<{ url: string; init?: RequestInit }> = []
   const fetch: FetchLike = async (input, init) => {

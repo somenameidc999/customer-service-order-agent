@@ -1,5 +1,6 @@
 import type { Context } from 'hono'
 import { CHAT_LIMITS, type AgentEvent, type ChatMessage, type ChatRequestBody, type ChatRole } from '../../shared/chat.js'
+import { jsonBodyError, readJsonBody } from '../request-security.js'
 import { createAgentTurn, type AgentRunner } from './agent.js'
 import { chatSession } from './session.js'
 
@@ -54,47 +55,34 @@ function streamEvent(event: AgentEvent): string {
  */
 export function createChatHandler(runTurn: AgentRunner = createAgentTurn(), secureSession = false) {
   return async (c: Context): Promise<Response> => {
-    const contentLength = Number(c.req.header('content-length') ?? '0')
-    if (contentLength > CHAT_LIMITS.maxRequestBodyBytes) {
-      return c.json({ error: 'Request body is too large.' }, 413)
-    }
-
-    let body: unknown
-    try {
-      body = await c.req.json()
-    } catch {
-      return c.json({ error: 'Request body must be valid JSON.' }, 400)
-    }
-
-    const result = validateChatBody(body)
+    const body = await readJsonBody(c.req.raw)
+    if ('status' in body) return c.json({ error: jsonBodyError(body.status) }, body.status)
+    const result = validateChatBody(body.value)
     if (!result.ok) return c.json({ error: result.error }, 400)
     const sessionId = chatSession(c, secureSession)
 
     const encoder = new TextEncoder()
+    const streamAbort = new AbortController()
+    const signal = AbortSignal.any([c.req.raw.signal, streamAbort.signal])
     const stream = new ReadableStream<Uint8Array>({
       async start(controller) {
         let closed = false
         const emit = (event: AgentEvent) => {
-          if (closed) return
-          try {
-            controller.enqueue(encoder.encode(streamEvent(event)))
-          } catch {
-            closed = true
-          }
+          if (!closed && !signal.aborted) controller.enqueue(encoder.encode(streamEvent(event)))
         }
         try {
-          await runTurn({ messages: toChatMessages(result.messages), sessionId }, emit)
+          signal.throwIfAborted()
+          await runTurn({ messages: toChatMessages(result.messages), sessionId, signal }, emit)
         } catch (error) {
           emit({ type: 'error', message: error instanceof Error ? error.message : 'The agent failed unexpectedly.' })
         } finally {
           emit({ type: 'done' })
           closed = true
-          try {
-            controller.close()
-          } catch {
-            // Already closed by the client disconnecting.
-          }
+          if (!streamAbort.signal.aborted) controller.close()
         }
+      },
+      cancel(reason) {
+        streamAbort.abort(reason)
       },
     })
 
@@ -102,7 +90,7 @@ export function createChatHandler(runTurn: AgentRunner = createAgentTurn(), secu
     return c.newResponse(stream, {
       headers: {
         'Content-Type': 'text/event-stream; charset=utf-8',
-        'Cache-Control': 'no-cache, no-transform',
+        'Cache-Control': 'private, no-store, no-transform',
         Connection: 'keep-alive',
         'X-Accel-Buffering': 'no',
       },

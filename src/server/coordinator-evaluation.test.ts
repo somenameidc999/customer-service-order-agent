@@ -20,6 +20,30 @@ function proposal(store: ShopifyActionStore, sessionId = 'session') {
     payload: { kind: 'cancel_order', reason: 'CUSTOMER', notifyCustomer: false }, title: 'Cancel order', details: [], orderName: '#1001' })
 }
 
+test('model-selected human support updates withdrawn action cards in the current session', async () => {
+  const store = new ShopifyActionStore(':memory:')
+  const handoffs = new HumanSupportStore(':memory:')
+  try {
+    const pending = proposal(store)
+    const other = proposal(store, 'other-session')
+    const events: AgentEvent[] = []
+    let rounds = 0
+    const run = createAgentTurn({
+      tools: createCommerceToolRegistry(createShopifyFixtureClient(), { sessionId: 'session', actions: store, handoffs }),
+      llm: { complete: async () => rounds++ === 0
+        ? { content: null, toolCalls: [{ id: 'support', name: 'requestHuman', argumentsText: '{"summary":"Product question"}' }] }
+        : { content: 'Support request queued.', toolCalls: [] } },
+    })
+    await run({ sessionId: 'session', messages: messages('What products do you sell?') }, (event) => events.push(event))
+    assert.ok(events.some((event) => event.type === 'confirmation' && event.action.id === pending.id && event.action.status === 'cancelled'))
+    assert.equal(store.get(pending.id, 'session').view.status, 'cancelled')
+    assert.equal(store.get(other.id, 'other-session').view.status, 'pending')
+  } finally {
+    store.close()
+    handoffs.close()
+  }
+})
+
 test('evaluation: identifier replies preserve the customer task while negation stops it', () => {
   const history = messages('I need my money back', 'ada@example.com', '#1001')
   assert.equal(planTurn('#1001', history).intent, 'refund_request')
