@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Card } from 'pixel-retroui'
 import { ChatPanel } from './ChatPanel'
 import { DemoOrders } from './DemoOrders'
+import { SystemCheck } from './SystemCheck'
 
 const ink = '#263f34'
 
@@ -22,8 +23,11 @@ export function App() {
 
       <main className="demo-main">
         <section className="demo-intro" aria-labelledby="intro-title">
-          <h1 id="intro-title">Small stack. Big <span className="intro-ideas">ideas<svg aria-hidden="true" viewBox="0 0 320 16" preserveAspectRatio="none"><path d="m2 9 82-5 91 5 142-2" /></svg></span><span className="intro-period">.</span></h1>
-          <p>Your next thing starts here. A fast Hono backend, a React frontend, and a little retro personality.</p>
+          <div>
+            <h1 id="intro-title">Small stack. Big <span className="intro-ideas">ideas<svg aria-hidden="true" viewBox="0 0 320 16" preserveAspectRatio="none"><path d="m2 9 82-5 91 5 142-2" /></svg></span><span className="intro-period">.</span></h1>
+            <p>Your next thing starts here. A fast Hono backend, a React frontend, and a little retro personality.</p>
+          </div>
+          <SystemCheck />
         </section>
         <DemoOrders revision={orderRevision} />
         <section className="chat-section" aria-labelledby="chat-title">

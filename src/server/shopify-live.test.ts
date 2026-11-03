@@ -40,16 +40,17 @@ function transport(handler: (body: { query: string; variables: Record<string, un
   return { fetch, calls }
 }
 
-test('demo orders query at most ten configured IDs and exclude real orders and real email domains', async () => {
+test('demo orders query at most twenty configured IDs and exclude real orders and real email domains', async () => {
   const order = {
     ...rawOrder, test: true, updatedAt: '2026-11-03T12:00:00Z', cancelledAt: null,
     totalPriceSet: { presentmentMoney: { amount: '12.34', currencyCode: 'CAD' } },
+    totalDiscountsSet: { presentmentMoney: { amount: '2.00', currencyCode: 'CAD' } },
     totalRefundedSet: { presentmentMoney: { amount: '1.00', currencyCode: 'CAD' } },
     shippingAddress: { formatted: ['12 Test Street'] },
   }
   const mock = transport(({ query, variables }) => {
     assert.match(query, /^query DemoOrders/)
-    assert.deepEqual(variables.ids, Array.from({ length: 10 }, (_, index) => `gid://shopify/Order/${42 + index}`))
+    assert.deepEqual(variables.ids, Array.from({ length: 20 }, (_, index) => `gid://shopify/Order/${42 + index}`))
     return json({ data: { nodes: [order,
       { ...order, id: 'gid://shopify/Order/43', test: false },
       { ...order, id: 'gid://shopify/Order/44', email: 'visitor@real-shop.com' },
@@ -59,11 +60,13 @@ test('demo orders query at most ten configured IDs and exclude real orders and r
   const client = createShopifyLiveClient({ config, fetch: mock.fetch })
   assert.deepEqual(await client.listDemoOrders('other-shop.myshopify.com', ['42']), [])
   assert.equal(mock.calls.length, 0)
-  const orders = await client.listDemoOrders(config.storeDomain, ['bad-id', '42', ...Array.from({ length: 15 }, (_, index) => String(42 + index))])
+  const orders = await client.listDemoOrders(config.storeDomain, ['bad-id', '42', ...Array.from({ length: 25 }, (_, index) => String(42 + index))])
   assert.deepEqual(orders.map(({ number, email, refunded, shippingAddress }) => ({ number, email, refunded, shippingAddress })), [{
     number: '#42', email: 'customer@example.com', refunded: { amount: '1.00', currencyCode: 'CAD' }, shippingAddress: ['12 Test Street'],
   }])
   assert.equal('customer' in orders[0]!, false)
+  assert.equal(orders[0]!.customerName, 'Customer')
+  assert.deepEqual(orders[0]!.discount, { amount: '2.00', currencyCode: 'CAD' })
   assert.deepEqual(orders[0]!.items, [{ title: 'Store item', quantity: 1 }])
 })
 
