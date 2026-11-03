@@ -32,7 +32,7 @@ test('shared demo protects pages, assets, chat, actions, and unknown routes; hea
   const app = createApp(undefined, { environment, agent: async () => { turns++ } })
   for (const [method, path] of [
     ['GET', '/'], ['GET', '/assets/app.js'], ['GET', '/api/hello'],
-    ['POST', '/api/chat'], ['GET', '/api/actions'],
+    ['POST', '/api/chat'], ['GET', '/api/actions'], ['GET', '/api/demo-orders'],
     ['POST', '/api/actions/id/confirm'], ['GET', '/missing'],
     ['POST', '/api/health'], ['GET', '/api/health/'],
   ]) {

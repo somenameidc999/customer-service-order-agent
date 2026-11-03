@@ -7,6 +7,16 @@ The [shared demo](https://customer-service-order-agent-demo.fly.dev/) runs in th
 private `.env.fly` file in the deployment worktree. Shopify requests go to the
 `nate-ce.myshopify.com` development store.
 
+Open **Demo orders** above the chat to view orders `#1095`, `#1093`, and `#1094`.
+Open an order to find the order number and matching demo email. The panel reads
+Shopify again after a reported action and when reopened. Use **Refresh orders**
+to pick up changes that Shopify finishes later.
+
+`DEMO_ORDER_STORE_DOMAIN` and `DEMO_ORDER_IDS` in `fly.toml` define which orders
+the panel can read. To add one, append its numeric Shopify order ID. The panel
+accepts up to ten IDs and only shows orders Shopify marks as test orders with
+synthetic email domains. Keep the list limited to orders created for the demo.
+
 The November 3, 2026 deployment passed the Fly health check, rejected anonymous
 requests and incorrect credentials, and loaded the React page in an authenticated
 browser. The browser streamed a live OpenRouter reply with a successful Shopify

@@ -13,7 +13,8 @@ npm run dev
 
 Open **http://localhost:5173**. Vite serves React on port 5173 and proxies `/api` to Hono on port 8787. Both servers restart or refresh when their source changes. Stop both with Ctrl+C.
 
-The default page includes RetroUI `Card`, `Button`, and `Input` components. The system check loads the real Hono health response. The greeting form makes a real API request. The command button copies `npm run dev`.
+The page opens to the order agent chat. The collapsed **Demo orders** panel sits
+above chat and lists live Shopify test orders when the demo is configured.
 
 ## Commands
 
@@ -71,6 +72,7 @@ vite.config.ts              React build and development API proxy
 | GET | `/api/health` | Status, service name, and server timestamp |
 | GET | `/api/hello?name=Ada` | Personalized greeting from Hono |
 | POST | `/api/chat` | Streams an agent turn as server-sent events |
+| GET | `/api/demo-orders` | Reads the configured Shopify test orders for the password-protected demo |
 
 The greeting name defaults to `builder`. Supplied names are trimmed and must contain 1–40 characters. Invalid names return HTTP 400 with an error message.
 
