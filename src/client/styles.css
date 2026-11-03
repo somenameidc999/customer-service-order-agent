@@ -44,6 +44,7 @@ code, pre, .live-tag { font-family: 'SFMono-Regular', Consolas, 'Liberation Mono
 .demo-intro { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); align-items: center; gap: 30px; padding: 8px 0 4px; }
 .demo-intro h1 { font-size: clamp(30px, 5vw, 56px); }
 .demo-intro p { margin: 13px 0 0; color: var(--muted); font-size: 14px; line-height: 1.6; }
+.intro-phrase { white-space: nowrap; }
 .intro-ideas { position: relative; display: inline-block; }
 .intro-ideas svg { position: absolute; width: 100%; height: 9px; left: 0; bottom: -5px; fill: none; stroke: var(--coral); stroke-width: 2; }
 .intro-period { color: var(--coral); }
@@ -102,7 +103,7 @@ code, pre, .live-tag { font-family: 'SFMono-Regular', Consolas, 'Liberation Mono
 .chat-empty { color: #7a8371; font-size: 12px; text-align: center; padding: 24px 0; }
 .chat-empty p { margin: 4px 0; }
 .chat-empty-hint { font-size: 11px; }
-.chat-scroll { height: clamp(250px, calc(100dvh - 590px), 650px); overflow-y: auto; padding: 18px 16px; display: flex; flex-direction: column; gap: 16px; background: #f4f2e9; scroll-behavior: smooth; }
+.chat-scroll { height: clamp(250px, calc(100dvh - 700px), 650px); overflow-y: auto; padding: 18px 16px; display: flex; flex-direction: column; gap: 16px; background: #f4f2e9; scroll-behavior: smooth; }
 .chat-message { display: flex; }
 .chat-message-user { justify-content: flex-end; }
 .chat-message-assistant { justify-content: flex-start; }
