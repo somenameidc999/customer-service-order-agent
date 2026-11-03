@@ -1,5 +1,6 @@
 import type { Hono } from 'hono'
 import { chatSession } from '../agent/session.js'
+import { jsonBodyError, readJsonBody } from '../request-security.js'
 import { ActionError, getShopifyActionStore, type ShopifyActionStore } from './actions.js'
 import { ShopifyClientError } from './client.js'
 import { createShopifyLiveClient } from './live-client.js'
@@ -16,15 +17,9 @@ export function registerActionRoutes(app: Hono, options: ActionRouteOptions = {}
   app.get('/api/actions', (c) => c.json({ actions: store().list(chatSession(c, Boolean(publicOrigin))) }))
 
   app.post('/api/actions/:id/:operation', async (c) => {
-    const origin = c.req.header('origin')
-    if (origin) {
-      try {
-        if (new URL(origin).origin !== (publicOrigin ?? new URL(c.req.url).origin)) return c.json({ error: 'Confirm actions from this app only.' }, 403)
-      } catch { return c.json({ error: 'Confirm actions from this app only.' }, 403) }
-    }
-    if (!c.req.header('content-type')?.startsWith('application/json')) return c.json({ error: 'Use a JSON action request.' }, 400)
-    let body: unknown
-    try { body = await c.req.json() } catch { return c.json({ error: 'Provide a valid action request.' }, 400) }
+    const parsed = await readJsonBody(c.req.raw)
+    if ('status' in parsed) return c.json({ error: jsonBodyError(parsed.status) }, parsed.status)
+    const body = parsed.value
     if (!body || typeof body !== 'object') return c.json({ error: 'Provide an action request object.' }, 400)
     const { id, operation } = c.req.param()
     const session = chatSession(c, Boolean(publicOrigin))

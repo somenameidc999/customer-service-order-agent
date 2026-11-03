@@ -6,6 +6,7 @@ import type { AgentRunner } from './agent/agent.js'
 import { createChatHandler } from './agent/chat-route.js'
 import { registerActionRoutes, type ActionRouteOptions } from './shopify/action-routes.js'
 import { loadDeploymentConfig } from './deployment.js'
+import { protectApiOrigin } from './request-security.js'
 import { createShopifyLiveClient } from './shopify/live-client.js'
 
 export interface AppOptions {
@@ -33,6 +34,7 @@ export function createApp(clientDirectory?: string, options: AppOptions = {}) {
       await next()
     }, basicAuth({ ...deployment.credentials, realm: 'Order agent demo' }))
   }
+  app.use('/api/*', protectApiOrigin(deployment.publicOrigin))
 
   const environment = options.environment ?? process.env
   const demoOrders = options.demoOrders ?? createShopifyLiveClient()

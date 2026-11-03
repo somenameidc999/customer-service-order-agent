@@ -69,6 +69,7 @@ export interface ShopifyLiveClientOptions {
   tokenProvider?: ShopifyTokenProvider
   fetch?: FetchLike
   requestTimeoutMs?: number
+  signal?: AbortSignal
   sessionId?: string
   actions?: ShopifyActionStore
 }
@@ -124,17 +125,20 @@ export function createShopifyLiveClient(options: ShopifyLiveClientOptions = {}) 
   async function query<T>(document: string, variables: Record<string, unknown> = {}): Promise<T> {
     const mutation = document.trimStart().startsWith('mutation ')
     config ??= loadShopifyConfig()
-    provider ??= createShopifyTokenProvider({ config, fetch: request })
+    provider ??= createShopifyTokenProvider({ config, fetch: request, signal: options.signal })
     for (let attempt = 0; attempt < 2; attempt += 1) {
+      options.signal?.throwIfAborted()
       const token = await provider.getAccessToken()
+      options.signal?.throwIfAborted()
       const redact = (message: string) => [token, config!.clientSecret, config!.accessToken ?? '']
         .reduce((text, secret) => secret ? text.split(secret).join('[redacted]') : text, message).slice(0, 500)
       let response: Response
       try {
+        const timeout = AbortSignal.timeout(options.requestTimeoutMs ?? 15000)
         response = await request(`https://${config.storeDomain}/admin/api/${config.apiVersion}/graphql.json`, {
           method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Shopify-Access-Token': token },
           body: JSON.stringify({ query: document, variables }),
-          signal: AbortSignal.timeout(options.requestTimeoutMs ?? 15000),
+          signal: options.signal ? AbortSignal.any([options.signal, timeout]) : timeout,
         })
       } catch {
         throw new ShopifyClientError(mutation ? 'OUTCOME_UNKNOWN' : 'API_ERROR', mutation ? 'The connection ended before Shopify confirmed the change. Check the action status before retrying.' : 'Could not reach Shopify. Please try again.', { retryable: !mutation })
@@ -170,6 +174,7 @@ export function createShopifyLiveClient(options: ShopifyLiveClientOptions = {}) 
           if (errors.length) throw new ShopifyClientError('INVALID_INPUT', `Shopify rejected the change: ${redact(errors.map((error) => error.message).join('; '))}`)
         }
       }
+      options.signal?.throwIfAborted()
       return payload.data
     }
     throw new ShopifyClientError('API_ERROR', 'Shopify authentication failed.')

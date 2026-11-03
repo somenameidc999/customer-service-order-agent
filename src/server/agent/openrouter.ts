@@ -49,6 +49,7 @@ export function createOpenRouterClient(options: { model?: string; baseUrl?: stri
         throw new Error('OPENROUTER_API_KEY is not configured on the server, so the agent cannot reply.')
       }
 
+      const timeout = AbortSignal.timeout(60000)
       const response = await fetch(`${baseUrl}/chat/completions`, {
         method: 'POST',
         headers: {
@@ -63,7 +64,7 @@ export function createOpenRouterClient(options: { model?: string; baseUrl?: stri
           ...(tools.length > 0 ? { tools: tools.map((tool) => ({ type: 'function', function: tool })) } : {}),
           ...(requiredTool ? { tool_choice: { type: 'function', function: { name: requiredTool } } } : {}),
         }),
-        signal: signal ?? AbortSignal.timeout(60000),
+        signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
       })
 
       if (!response.ok) {

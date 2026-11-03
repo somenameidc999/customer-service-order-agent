@@ -176,7 +176,7 @@ test('POST /api/chat rejects invalid bodies with a JSON 400', async () => {
   assert.equal(empty.status, 400)
   assert.deepEqual(await empty.json(), { error: 'Provide at least one message.' })
 
-  const malformed = await app.request('/api/chat', { method: 'POST', body: 'not-json' })
+  const malformed = await app.request('/api/chat', { method: 'POST', headers: { 'content-type': 'application/json' }, body: 'not-json' })
   assert.equal(malformed.status, 400)
   assert.equal((await malformed.json() as { error: string }).error, 'Request body must be valid JSON.')
 })

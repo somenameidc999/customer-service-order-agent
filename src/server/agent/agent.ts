@@ -21,6 +21,7 @@ export type AgentEmitter = (event: AgentEvent) => void
 export interface AgentTurnInput {
   messages: ChatMessage[]
   sessionId?: string
+  signal?: AbortSignal
 }
 
 /** Shape the chat route depends on; injectable so tests stay offline. */
@@ -161,6 +162,8 @@ export function createAgentTurn(options: AgentOptions = {}): AgentRunner {
   const preToolUseHooks = options.preToolUseHooks ?? defaultPreToolUseHooks()
 
   return async function runTurn(input, emit) {
+    const { signal } = input
+    if (signal?.aborted) return
     emit({ type: 'hook', name: 'agent-turn', phase: 'start' })
     try {
       // A fresh authorization context per turn: a verified identity established
@@ -207,7 +210,12 @@ export function createAgentTurn(options: AgentOptions = {}): AgentRunner {
       }
       const messages = toLlmMessages(input.messages, planGuidance(plan))
       // Customer verification belongs to this turn, never to another chat.
-      const tools = options.toolsFactory?.(input) ?? options.tools ?? createCommerceToolRegistry(undefined, { sessionId: input.sessionId, actions: options.actions, handoffs: options.handoffs })
+      const tools = options.toolsFactory?.(input) ?? options.tools ?? createCommerceToolRegistry(undefined, {
+        sessionId: input.sessionId,
+        actions: options.actions,
+        handoffs: options.handoffs,
+        signal,
+      })
       const refundAmount = plan.intent === 'refund_request' ? requestedRefundAmount(input.messages) : undefined
       const fullRefund = plan.intent === 'refund_request' && requestedFullRefund(input.messages)
       const notifyCustomer = requestedCustomerNotification(input.messages)
@@ -265,6 +273,7 @@ export function createAgentTurn(options: AgentOptions = {}): AgentRunner {
         for (const hook of hooks) {
           emit({ type: 'hook', name: hook.name, phase: 'start' })
           await hook.run({ messages, round })
+          if (signal?.aborted) return
           emit({ type: 'hook', name: hook.name, phase: 'end' })
         }
 
@@ -274,7 +283,11 @@ export function createAgentTurn(options: AgentOptions = {}): AgentRunner {
           : authorization.identity && (explicitAction || refundRevision) && plan.intent === 'refund_request' && (refundAmount || fullRefund) ? 'createRefund'
           : authorization.identity && explicitAction && (plan.intent === 'cancel_refund' || (plan.intent === 'order_edit' && /\bcancel\b/i.test(taskText))) ? 'cancelOrder'
           : undefined
-        const completion = await llm.complete({ messages, tools: available, ...(requiredTool && offered.has(requiredTool) ? { requiredTool } : {}) })
+        const completion = await llm.complete({
+          messages, tools: available, signal,
+          ...(requiredTool && offered.has(requiredTool) ? { requiredTool } : {}),
+        })
+        if (signal?.aborted) return
 
         if (completion.toolCalls.length === 0) {
           if (requiredTool && offered.has(requiredTool)) {
@@ -298,6 +311,7 @@ export function createAgentTurn(options: AgentOptions = {}): AgentRunner {
         })
 
         for (const call of completion.toolCalls) {
+          if (signal?.aborted) return
           const tool = tools.get(call.name)
           const spoke = tool?.spoke ?? 'unknown'
           let args: Record<string, unknown> = {}
@@ -328,6 +342,7 @@ export function createAgentTurn(options: AgentOptions = {}): AgentRunner {
             for (const hook of preToolUseHooks) {
               emit({ type: 'hook', name: hook.name, phase: 'start', detail: call.name })
               await hook.run({ tool: call.name, args })
+              if (signal?.aborted) return
               emit({ type: 'hook', name: hook.name, phase: 'end', detail: call.name })
             }
             if (call.name === 'findCustomer') requireCustomerSuppliedIdentity(args, input.messages)
@@ -336,10 +351,12 @@ export function createAgentTurn(options: AgentOptions = {}): AgentRunner {
             const escalation = checkTool(call.name, args)
             if (escalation) throw new RefundReviewRequired(escalation)
             result = tool
-              ? await tool.run(args, { authorization })
+              ? await tool.run(args, { authorization, onAction: (action) => emit({ type: 'confirmation', action }) })
               : `Unknown tool "${call.name}".`
+            if (signal?.aborted) return
             if (!tool) ok = false
           } catch (error) {
+            if (signal?.aborted) return
             if (error instanceof RefundReviewRequired) {
               emit({ type: 'tool_call', id: call.id, name: call.name, phase: 'end', result: `ESCALATED: ${error.message}`, ok: false })
               emit({ type: 'subagent', name: spoke, phase: 'end', detail: call.name })

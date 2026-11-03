@@ -8,6 +8,7 @@ import { getShopifyActionStore, type ShopifyActionStore, type StoredShopifyActio
 import type { ActionOutcome } from '../shopify/write-client.js'
 import { getHumanSupportStore, type HumanSupportStore } from './handoff.js'
 import { createShopifySpokeTools } from './shopify-spokes.js'
+import type { ShopifyActionView } from '../../shared/actions.js'
 
 /** A tool exposed to the model, owned by a single spoke (subagent). */
 export interface ToolSpec {
@@ -22,6 +23,7 @@ export interface ToolSpec {
  */
 export interface ToolContext {
   authorization: AuthorizationContext
+  onAction?: (action: ShopifyActionView) => void
 }
 
 export interface ToolDefinition {
@@ -146,19 +148,21 @@ export interface CommerceToolContext {
   sessionId?: string
   actions?: ShopifyActionStore
   handoffs?: HumanSupportStore
+  signal?: AbortSignal
 }
 
 export function createCommerceToolRegistry(client?: ShopifyClient, context: CommerceToolContext = {}): ToolRegistry {
-  client ??= createShopifyLiveClient({ sessionId: context.sessionId, actions: context.actions })
+  client ??= createShopifyLiveClient({ sessionId: context.sessionId, actions: context.actions, signal: context.signal })
   const commerce = client
   const supportTools: ToolDefinition[] = [
     {
       spoke: 'support',
       spec: { name: 'requestHuman', description: 'Queue a request in the local human support inbox, awaiting staff pickup. This is not a live transfer. Stop automated changes when the customer asks for a human.',
         parameters: { type: 'object', properties: { summary: { type: 'string', description: 'Concise customer request and relevant order reference. Do not include credentials or full payment data.' } }, required: ['summary'], additionalProperties: false } },
-      run: (args) => {
+      run: (args, toolContext) => {
         if (!context.sessionId) throw new Error('A chat session is required for human support.')
         const cancelled = (context.actions ?? getShopifyActionStore()).cancelPending(context.sessionId)
+        for (const action of cancelled) toolContext?.onAction?.(action)
         const request = (context.handoffs ?? getHumanSupportStore()).enqueue(context.sessionId, String(args.summary ?? 'Customer requested human support.'))
         return JSON.stringify({ request, withdrawnProposalIds: cancelled.map((action) => action.id), message: 'Queued in the local human support inbox, awaiting staff pickup. No live transfer has occurred.' })
       },

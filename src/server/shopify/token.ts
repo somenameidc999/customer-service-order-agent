@@ -52,6 +52,7 @@ export interface ShopifyTokenProviderOptions {
   /** Injectable clock for tests. Defaults to `Date.now`. */
   now?: () => number
   requestTimeoutMs?: number
+  signal?: AbortSignal
 }
 
 function errorMessage(error: unknown): string {
@@ -95,6 +96,7 @@ export function createShopifyTokenProvider(options: ShopifyTokenProviderOptions 
 
     let response: Response
     try {
+      const timeout = AbortSignal.timeout(requestTimeoutMs)
       response = await request(`${baseUrl}${TOKEN_PATH}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
@@ -103,7 +105,7 @@ export function createShopifyTokenProvider(options: ShopifyTokenProviderOptions 
           client_secret: config.clientSecret,
           grant_type: 'client_credentials',
         }),
-        signal: AbortSignal.timeout(requestTimeoutMs),
+        signal: options.signal ? AbortSignal.any([options.signal, timeout]) : timeout,
       })
     } catch (error) {
       throw new ShopifyTokenError(

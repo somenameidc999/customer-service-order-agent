@@ -58,9 +58,11 @@ Create the volume in the same region as the Machine.
 | `src/server/deployment.test.ts` | Verify access restrictions, streaming sessions, and proxied action confirmation |
 
 The server binds to `0.0.0.0:8787`. Fly terminates HTTPS before forwarding requests
-to Hono. `PUBLIC_ORIGIN` supplies the external origin for action confirmation
-checks. The server sets `Secure` on session cookies when `PUBLIC_ORIGIN` is set.
-The server does not trust client-supplied proxy headers for either decision.
+to Hono. Preserve the public `Host` header if you add a proxy in front of Fly.
+The API checks that header and any browser `Origin` against `PUBLIC_ORIGIN`.
+Session cookies use `Secure` when `PUBLIC_ORIGIN` is set. These checks use the
+configured origin independently of forwarded headers. The Fly health check
+continues to use `/api/health` without credentials.
 
 ## Access and data assumptions
 
