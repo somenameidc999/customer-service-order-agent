@@ -7,14 +7,18 @@ The [shared demo](https://customer-service-order-agent-demo.fly.dev/) runs in th
 private `.env.fly` file in the deployment worktree. Shopify requests go to the
 `nate-ce.myshopify.com` development store.
 
-Open **Demo orders** above the chat to view orders `#1095`, `#1093`, and `#1094`.
-Open an order to find the order number and matching demo email. The panel reads
-Shopify again after a reported action and when reopened. Use **Refresh orders**
-to pick up changes that Shopify finishes later.
+Open **Demo orders** above the chat to browse sample orders `#1096` through
+`#1110` and the three original test orders. The picker shows ten orders per page. Open an order
+to find its synthetic customer, demo email, quantities, and discount. The picker
+reads Shopify again after a reported action and when reopened. Use **Refresh
+orders** to pick up changes that Shopify finishes later.
+
+Order `#1109` has a $500.00 total for testing the refund boundary. Orders
+`#1108` and `#1110` have balances above $500 for testing human review.
 
 `DEMO_ORDER_STORE_DOMAIN` and `DEMO_ORDER_IDS` in `fly.toml` define which orders
 the panel can read. To add one, append its numeric Shopify order ID. The panel
-accepts up to ten IDs and only shows orders Shopify marks as test orders with
+accepts up to twenty IDs and only shows orders Shopify marks as test orders with
 synthetic email domains. Keep the list limited to orders created for the demo.
 
 The November 3, 2026 deployment passed the Fly health check, rejected anonymous

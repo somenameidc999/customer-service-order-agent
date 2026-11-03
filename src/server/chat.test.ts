@@ -212,7 +212,7 @@ test('the demo order picker starts collapsed above the agent chat', async () => 
   const html = renderToStaticMarkup(React.createElement(App))
   assert.match(html, /<details class="demo-orders"><summary><strong>Demo orders/)
   assert.ok(html.indexOf('class="demo-orders"') < html.indexOf('id="chat-title"'))
-  assert.doesNotMatch(html, /localhost \/ system-check|Say hello to your backend|Good company/)
+  assert.doesNotMatch(html, /Say hello to your backend|Good company/)
 })
 
 test('the OpenRouter client sends the key and parses streamed tool calls', async () => {

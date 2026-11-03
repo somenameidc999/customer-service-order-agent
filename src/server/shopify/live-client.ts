@@ -50,12 +50,13 @@ interface RawDemoOrder {
   name: string
   test: boolean
   email: string | null
-  customer: { id: string } | null
+  customer: { firstName: string | null; lastName: string | null } | null
   displayFinancialStatus: string | null
   displayFulfillmentStatus: string
   cancelledAt: string | null
   updatedAt: string
   totalPriceSet: { presentmentMoney: Money }
+  totalDiscountsSet: { presentmentMoney: Money }
   totalRefundedSet: { presentmentMoney: Money }
   shippingAddress: { formatted: string[] } | null
   lineItems: Connection<{ title: string; quantity: number }>
@@ -289,7 +290,7 @@ export function createShopifyLiveClient(options: ShopifyLiveClientOptions = {}) 
     ...writes,
   }
   async function listDemoOrders(storeDomain: string, numericIds: string[]): Promise<DemoOrder[]> {
-    const ids = [...new Set(numericIds.filter((id) => /^\d+$/.test(id)))].slice(0, 10)
+    const ids = [...new Set(numericIds.filter((id) => /^\d+$/.test(id)))].slice(0, 20)
       .map((id) => `gid://shopify/Order/${id}`)
     if (!storeDomain || !ids.length) return []
     config ??= loadShopifyConfig()
@@ -297,8 +298,9 @@ export function createShopifyLiveClient(options: ShopifyLiveClientOptions = {}) 
 
     const data = await query<{ nodes: (RawDemoOrder | null)[] }>(`query DemoOrders($ids: [ID!]!) {
       nodes(ids: $ids) { ... on Order {
-        id name test email customer { id } displayFinancialStatus displayFulfillmentStatus cancelledAt updatedAt
+        id name test email customer { firstName lastName } displayFinancialStatus displayFulfillmentStatus cancelledAt updatedAt
         totalPriceSet { presentmentMoney { amount currencyCode } }
+        totalDiscountsSet { presentmentMoney { amount currencyCode } }
         totalRefundedSet { presentmentMoney { amount currencyCode } }
         shippingAddress { formatted(withName: false, withCompany: false) }
         lineItems(first: 20) { nodes { title quantity } pageInfo { hasNextPage } }
@@ -309,9 +311,11 @@ export function createShopifyLiveClient(options: ShopifyLiveClientOptions = {}) 
       const raw = orders.get(id)
       if (!raw || raw.test !== true || !raw.customer || !raw.email || !DEMO_EMAIL.test(raw.email)) return []
       return [{
-        number: raw.name, email: raw.email, financialStatus: raw.displayFinancialStatus,
+        number: raw.name, email: raw.email, customerName: [raw.customer.firstName, raw.customer.lastName].filter(Boolean).join(' '),
+        financialStatus: raw.displayFinancialStatus,
         fulfillmentStatus: raw.displayFulfillmentStatus, cancelledAt: raw.cancelledAt, updatedAt: raw.updatedAt,
-        total: raw.totalPriceSet.presentmentMoney, refunded: raw.totalRefundedSet.presentmentMoney,
+        total: raw.totalPriceSet.presentmentMoney, discount: raw.totalDiscountsSet.presentmentMoney,
+        refunded: raw.totalRefundedSet.presentmentMoney,
         shippingAddress: raw.shippingAddress?.formatted ?? [],
         items: raw.lineItems.nodes.map(({ title, quantity }) => ({ title, quantity })),
         itemsTruncated: raw.lineItems.pageInfo.hasNextPage,

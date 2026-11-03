@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import type { DemoOrder } from '../shared/demo-orders'
 
+const ORDERS_PER_PAGE = 10
+
 function formatStatus(status: string | null) {
   return status ? status.toLowerCase().replaceAll('_', ' ') : 'Unknown'
 }
@@ -16,6 +18,12 @@ export function DemoOrders({ revision }: { revision: number }) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [copyFeedback, setCopyFeedback] = useState('')
+  const [page, setPage] = useState(0)
+  const orderCount = orders?.length ?? 0
+  const pageCount = Math.ceil(orderCount / ORDERS_PER_PAGE)
+  const currentPage = Math.min(page, Math.max(0, pageCount - 1))
+  const first = currentPage * ORDERS_PER_PAGE
+  const visibleOrders = orders?.slice(first, first + ORDERS_PER_PAGE)
 
   useEffect(() => {
     if (!open) return
@@ -58,7 +66,7 @@ export function DemoOrders({ revision }: { revision: number }) {
         {!orders && loading && <p role="status">Loading demo orders…</p>}
         {orders?.length === 0 && !error && !loading && <p>No demo orders are configured.</p>}
         <div className="demo-order-list">
-          {orders?.map((order) => (
+          {visibleOrders?.map((order) => (
             <details key={order.number} name="demo-order" className="demo-order">
               <summary>
                 <strong>{order.number}</strong>
@@ -67,10 +75,12 @@ export function DemoOrders({ revision }: { revision: number }) {
               </summary>
               <div className="demo-order-details">
                 <dl>
+                  {order.customerName && <div><dt>Customer</dt><dd>{order.customerName}</dd></div>}
                   <div className="demo-order-wide"><dt>Demo email</dt><dd><code>{order.email}</code></dd></div>
                   <div><dt>Payment</dt><dd className="demo-order-status">{formatStatus(order.financialStatus)}</dd></div>
                   <div><dt>Fulfillment</dt><dd className="demo-order-status">{formatStatus(order.fulfillmentStatus)}</dd></div>
                   <div><dt>Refunded</dt><dd>{formatMoney(order.refunded)}</dd></div>
+                  <div><dt>Discount</dt><dd>{formatMoney(order.discount)}</dd></div>
                   <div className="demo-order-wide"><dt>Shipping address</dt><dd>{order.shippingAddress.join(', ') || 'None'}</dd></div>
                   <div><dt>Updated in Shopify</dt><dd><time dateTime={order.updatedAt}>{new Date(order.updatedAt).toLocaleString()}</time></dd></div>
                   {order.cancelledAt && <div><dt>Cancelled</dt><dd><time dateTime={order.cancelledAt}>{new Date(order.cancelledAt).toLocaleString()}</time></dd></div>}
@@ -83,6 +93,11 @@ export function DemoOrders({ revision }: { revision: number }) {
             </details>
           ))}
         </div>
+        {pageCount > 1 && <nav className="demo-order-pages" aria-label="Demo order pages">
+          <button type="button" disabled={currentPage === 0} onClick={() => setPage(currentPage - 1)}>Previous</button>
+          <span aria-live="polite">Orders {first + 1}–{first + (visibleOrders?.length ?? 0)} of {orderCount}</span>
+          <button type="button" disabled={currentPage === pageCount - 1} onClick={() => setPage(currentPage + 1)}>Next</button>
+        </nav>}
       </div>
     </details>
   )
