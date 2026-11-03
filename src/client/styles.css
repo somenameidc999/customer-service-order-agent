@@ -39,7 +39,14 @@ code, pre, .live-tag { font-family: 'SFMono-Regular', Consolas, 'Liberation Mono
 .demo-main { display: grid; gap: 20px; padding: 22px 0 36px; }
 .button { display: inline-flex; justify-content: center; align-items: center; margin: 0; padding: 9px 18px; min-height: 43px; font-size: 14px; white-space: nowrap; }
 .button:hover { filter: brightness(1.06); }
-h1 { margin: 0 0 8px; font-family: 'Minecraft', monospace; font-weight: 400; font-size: clamp(23px, 3.7vw, 38px); line-height: 1.15; }
+.demo-intro h1, .chat-card h2 { margin: 0 0 8px; font-family: 'Minecraft', monospace; font-weight: 400; line-height: 1.15; }
+.chat-card h2 { font-size: clamp(23px, 3.7vw, 38px); }
+.demo-intro { padding: 8px 0 4px; }
+.demo-intro h1 { font-size: clamp(30px, 5vw, 56px); }
+.demo-intro p { margin: 13px 0 0; color: var(--muted); font-size: 14px; line-height: 1.6; }
+.intro-ideas { position: relative; display: inline-block; }
+.intro-ideas svg { position: absolute; width: 100%; height: 9px; left: 0; bottom: -5px; fill: none; stroke: var(--coral); stroke-width: 2; }
+.intro-period { color: var(--coral); }
 .card-description { font-size: 13px; line-height: 1.6; color: var(--muted); margin: 0; }
 
 .demo-orders { border: 1px solid #a6af9b; background: #fffdf5; font-size: 13px; }
@@ -82,7 +89,7 @@ h1 { margin: 0 0 8px; font-family: 'Minecraft', monospace; font-weight: 400; fon
 .chat-empty { color: #7a8371; font-size: 12px; text-align: center; padding: 24px 0; }
 .chat-empty p { margin: 4px 0; }
 .chat-empty-hint { font-size: 11px; }
-.chat-scroll { height: clamp(250px, calc(100dvh - 500px), 650px); overflow-y: auto; padding: 18px 16px; display: flex; flex-direction: column; gap: 16px; background: #f4f2e9; scroll-behavior: smooth; }
+.chat-scroll { height: clamp(250px, calc(100dvh - 590px), 650px); overflow-y: auto; padding: 18px 16px; display: flex; flex-direction: column; gap: 16px; background: #f4f2e9; scroll-behavior: smooth; }
 .chat-message { display: flex; }
 .chat-message-user { justify-content: flex-end; }
 .chat-message-assistant { justify-content: flex-start; }

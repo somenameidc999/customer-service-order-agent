@@ -21,10 +21,14 @@ export function App() {
       </header>
 
       <main className="demo-main">
+        <section className="demo-intro" aria-labelledby="intro-title">
+          <h1 id="intro-title">Small stack. Big <span className="intro-ideas">ideas<svg aria-hidden="true" viewBox="0 0 320 16" preserveAspectRatio="none"><path d="m2 9 82-5 91 5 142-2" /></svg></span><span className="intro-period">.</span></h1>
+          <p>Your next thing starts here. A fast Hono backend, a React frontend, and a little retro personality.</p>
+        </section>
         <DemoOrders revision={orderRevision} />
         <section className="chat-section" aria-labelledby="chat-title">
           <Card bg="#e5e9dc" borderColor={ink} shadowColor="#c6c9b9" textColor={ink} className="chat-card">
-            <h1 id="chat-title">Chat with the order agent</h1>
+            <h2 id="chat-title">Chat with the order agent</h2>
             <p className="card-description">Ask about an order, update a shipping address, or request a refund.</p>
             <ChatPanel onOrderChange={() => setOrderRevision((value) => value + 1)} />
           </Card>
