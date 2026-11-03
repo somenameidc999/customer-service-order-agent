@@ -5,22 +5,21 @@ import { ShopifyClientError } from './client.js'
 import { createShopifyLiveClient } from './live-client.js'
 
 export interface ActionRouteOptions {
-  publicOrigin?: string
   store?: ShopifyActionStore
   client?: (sessionId: string) => Pick<ReturnType<typeof createShopifyLiveClient>, 'executeAction' | 'checkAction'>
 }
 
-export function registerActionRoutes(app: Hono, options: ActionRouteOptions = {}): void {
+export function registerActionRoutes(app: Hono, options: ActionRouteOptions = {}, publicOrigin?: string): void {
   const store = () => options.store ?? getShopifyActionStore()
   const client = options.client ?? ((sessionId: string) => createShopifyLiveClient({ sessionId }))
 
-  app.get('/api/actions', (c) => c.json({ actions: store().list(chatSession(c, Boolean(options.publicOrigin))) }))
+  app.get('/api/actions', (c) => c.json({ actions: store().list(chatSession(c, Boolean(publicOrigin))) }))
 
   app.post('/api/actions/:id/:operation', async (c) => {
     const origin = c.req.header('origin')
     if (origin) {
       try {
-        if (new URL(origin).origin !== (options.publicOrigin ?? new URL(c.req.url).origin)) return c.json({ error: 'Confirm actions from this app only.' }, 403)
+        if (new URL(origin).origin !== (publicOrigin ?? new URL(c.req.url).origin)) return c.json({ error: 'Confirm actions from this app only.' }, 403)
       } catch { return c.json({ error: 'Confirm actions from this app only.' }, 403) }
     }
     if (!c.req.header('content-type')?.startsWith('application/json')) return c.json({ error: 'Use a JSON action request.' }, 400)
@@ -28,7 +27,7 @@ export function registerActionRoutes(app: Hono, options: ActionRouteOptions = {}
     try { body = await c.req.json() } catch { return c.json({ error: 'Provide a valid action request.' }, 400) }
     if (!body || typeof body !== 'object') return c.json({ error: 'Provide an action request object.' }, 400)
     const { id, operation } = c.req.param()
-    const session = chatSession(c, Boolean(options.publicOrigin))
+    const session = chatSession(c, Boolean(publicOrigin))
     try {
       if (operation === 'dismiss') return c.json({ action: store().cancel(id, session) })
       const action = store().get(id, session)

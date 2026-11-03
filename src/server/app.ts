@@ -46,7 +46,7 @@ export function createApp(clientDirectory?: string, options: AppOptions = {}) {
 
   // Streaming chat surface. The interface calls this with the conversation so far.
   app.post('/api/chat', createChatHandler(options.agent, Boolean(deployment.publicOrigin)))
-  registerActionRoutes(app, { ...options.actions, publicOrigin: deployment.publicOrigin })
+  registerActionRoutes(app, options.actions, deployment.publicOrigin)
 
   // Serve exactly one frontend page. Unknown paths return JSON with status 404.
   if (clientDirectory) {

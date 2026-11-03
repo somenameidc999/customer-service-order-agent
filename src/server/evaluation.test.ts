@@ -113,3 +113,17 @@ test('evaluation: reset and evidence controls are absent from the production app
   assert.equal((await app.request('/api/evaluation/evidence')).status, 404)
   assert.equal((await app.request('/api/evaluation/reset', { method: 'POST' })).status, 404)
 })
+
+test('evaluation: action routes use the replacement store after reset', async () => {
+  const env = createEvaluationEnvironment()
+  try {
+    const app = createEvaluationApp(env)
+    const reset = await app.request('http://localhost/api/evaluation/reset', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}',
+    })
+    assert.equal(reset.status, 200)
+    const actions = await app.request('http://localhost/api/actions')
+    assert.equal(actions.status, 200)
+    assert.deepEqual(await actions.json(), { actions: [] })
+  } finally { env.close() }
+})
