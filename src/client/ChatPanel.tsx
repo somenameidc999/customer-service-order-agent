@@ -27,8 +27,8 @@ interface UiMessage {
   actionId?: string
 }
 
-const submittedStatuses: ReadonlySet<ShopifyActionView['status']> = new Set([
-  'executing', 'processing', 'unknown', 'failed', 'succeeded',
+const chatActionStatuses: ReadonlySet<ShopifyActionView['status']> = new Set([
+  'executing', 'processing', 'unknown', 'failed', 'succeeded', 'cancelled',
 ])
 
 function newId(): string {
@@ -116,7 +116,7 @@ export function ChatPanel({ onOrderChange }: { onOrderChange?: () => void }) {
   const [actions, setActions] = useState<ShopifyActionView[]>([])
   const actionsById = new Map(actions.map((action) => [action.id, action]))
   const actionMessages = new Set(messages.map((message) => message.actionId))
-  const pinnedActions = actions.filter((action) => action.status !== 'succeeded' && !actionMessages.has(action.id))
+  const pinnedActions = actions.filter((action) => action.status !== 'succeeded' && action.status !== 'cancelled' && !actionMessages.has(action.id))
   const scrollRef = useRef<HTMLDivElement>(null)
   const stickToBottom = useRef(true)
 
@@ -124,10 +124,10 @@ export function ChatPanel({ onOrderChange }: { onOrderChange?: () => void }) {
     if (action.status === 'succeeded' || action.status === 'processing' || action.status === 'unknown') onOrderChange?.()
     setActions((current) => {
       const previous = current.find((entry) => entry.id === action.id)
-      if (previous?.status === 'succeeded') return current
+      if (previous?.status === 'succeeded' || previous?.status === 'cancelled') return current
       return previous ? current.map((entry) => entry.id === action.id ? action : entry) : [...current, action]
     })
-    if (!submittedStatuses.has(action.status)) return
+    if (!chatActionStatuses.has(action.status)) return
 
     const record: UiMessage = {
       id: `action-${action.id}`,
