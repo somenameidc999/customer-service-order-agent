@@ -38,6 +38,7 @@ export function ActionConfirmation({ action, onChange }: { action: ShopifyAction
       <small>Proposal expires at {new Date(action.expiresAt).toLocaleTimeString()}.</small>
     </>}
     {action.result && <p role="status">{action.result.message}{action.result.shopifyId && <><br /><code>{action.result.shopifyId}</code></>}</p>}
+    {action.status === 'cancelled' && <p role="status">Proposal cancelled. No change was sent to Shopify.</p>}
     {action.error && <p role="alert">{action.error}</p>}
     {!pending && action.status === 'pending' && <p>This proposal expired. Request a new proposal.</p>}
     {canCheck && <button type="button" disabled={busy} onClick={() => void submit('check')}>{busy ? 'Checking…' : 'Check Shopify status'}</button>}
