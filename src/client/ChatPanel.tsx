@@ -108,7 +108,7 @@ async function readError(response: Response): Promise<string> {
   return `The chat request failed with status ${response.status}.`
 }
 
-export function ChatPanel() {
+export function ChatPanel({ onOrderChange }: { onOrderChange?: () => void }) {
   const [messages, setMessages] = useState<UiMessage[]>([])
   const [draft, setDraft] = useState('')
   const [busy, setBusy] = useState(false)
@@ -121,6 +121,7 @@ export function ChatPanel() {
   const stickToBottom = useRef(true)
 
   function updateAction(action: ShopifyActionView) {
+    if (action.status === 'succeeded' || action.status === 'processing' || action.status === 'unknown') onOrderChange?.()
     setActions((current) => {
       const previous = current.find((entry) => entry.id === action.id)
       if (previous?.status === 'succeeded') return current

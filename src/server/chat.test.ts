@@ -200,18 +200,19 @@ test('the chat interface renders history, composer and activity affordances', as
   const { App } = await import('../client/App.js')
   const html = renderToStaticMarkup(React.createElement(App))
   assert.match(html, /AGENT CHAT/)
-  assert.match(html, /Send a message\. Watch the agent work/)
+  assert.match(html, /Chat with the order agent/)
   assert.match(html, /aria-label="Chat history"/)
   assert.match(html, /aria-label="Message the agent"/)
   assert.match(html, /chat-composer/)
   assert.match(html, /class="[^"]*chat-clear[^"]*"[^>]*>Clear</)
 })
 
-test('the greeting submit button stays unique for the browser scenario', async () => {
+test('the demo order picker starts collapsed above the agent chat', async () => {
   const { App } = await import('../client/App.js')
   const html = renderToStaticMarkup(React.createElement(App))
-  const submitButtons = html.match(/type="submit"/g) ?? []
-  assert.equal(submitButtons.length, 1, 'only the greeting form should have a submit button')
+  assert.match(html, /<details class="demo-orders"><summary><strong>Demo orders/)
+  assert.ok(html.indexOf('class="demo-orders"') < html.indexOf('id="chat-title"'))
+  assert.doesNotMatch(html, /localhost \/ system-check|Say hello to your backend|Good company/)
 })
 
 test('the OpenRouter client sends the key and parses streamed tool calls', async () => {

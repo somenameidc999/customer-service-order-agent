@@ -1,4 +1,5 @@
 import { createShopifyWrites } from './write-client.js'
+import type { DemoOrder } from '../../shared/demo-orders.js'
 import type { ShopifyActionStore } from './actions.js'
 import { loadShopifyConfig, type ShopifyConfig } from './config.js'
 import { createShopifyTokenProvider, type FetchLike, type ShopifyTokenProvider } from './token.js'
@@ -43,6 +44,24 @@ const ORDER_FIELDS = `id name email phone customer { ${CUSTOMER_FIELDS} }
   shippingAddress { formatted }
   lineItems(first: 100) { nodes { id title quantity variant { id } } pageInfo { hasNextPage } }
   refunds { id createdAt note totalRefundedSet { shopMoney { amount currencyCode } } }`
+
+interface RawDemoOrder {
+  id: string
+  name: string
+  test: boolean
+  email: string | null
+  customer: { id: string } | null
+  displayFinancialStatus: string | null
+  displayFulfillmentStatus: string
+  cancelledAt: string | null
+  updatedAt: string
+  totalPriceSet: { presentmentMoney: Money }
+  totalRefundedSet: { presentmentMoney: Money }
+  shippingAddress: { formatted: string[] } | null
+  lineItems: Connection<{ title: string; quantity: number }>
+}
+
+const DEMO_EMAIL = /^[^@\s]+@(?:example\.(?:com|net|org)|[^@\s]+\.(?:invalid|test))$/i
 
 export interface ShopifyLiveClientOptions {
   config?: ShopifyConfig
@@ -269,5 +288,36 @@ export function createShopifyLiveClient(options: ShopifyLiveClientOptions = {}) 
     },
     ...writes,
   }
-  return client
+  async function listDemoOrders(storeDomain: string, numericIds: string[]): Promise<DemoOrder[]> {
+    const ids = [...new Set(numericIds.filter((id) => /^\d+$/.test(id)))].slice(0, 10)
+      .map((id) => `gid://shopify/Order/${id}`)
+    if (!storeDomain || !ids.length) return []
+    config ??= loadShopifyConfig()
+    if (config.storeDomain !== storeDomain) return []
+
+    const data = await query<{ nodes: (RawDemoOrder | null)[] }>(`query DemoOrders($ids: [ID!]!) {
+      nodes(ids: $ids) { ... on Order {
+        id name test email customer { id } displayFinancialStatus displayFulfillmentStatus cancelledAt updatedAt
+        totalPriceSet { presentmentMoney { amount currencyCode } }
+        totalRefundedSet { presentmentMoney { amount currencyCode } }
+        shippingAddress { formatted(withName: false, withCompany: false) }
+        lineItems(first: 20) { nodes { title quantity } pageInfo { hasNextPage } }
+      } }
+    }`, { ids })
+    const orders = new Map(data.nodes.filter((node) => node !== null).map((node) => [node.id, node]))
+    return ids.flatMap((id) => {
+      const raw = orders.get(id)
+      if (!raw || raw.test !== true || !raw.customer || !raw.email || !DEMO_EMAIL.test(raw.email)) return []
+      return [{
+        number: raw.name, email: raw.email, financialStatus: raw.displayFinancialStatus,
+        fulfillmentStatus: raw.displayFulfillmentStatus, cancelledAt: raw.cancelledAt, updatedAt: raw.updatedAt,
+        total: raw.totalPriceSet.presentmentMoney, refunded: raw.totalRefundedSet.presentmentMoney,
+        shippingAddress: raw.shippingAddress?.formatted ?? [],
+        items: raw.lineItems.nodes.map(({ title, quantity }) => ({ title, quantity })),
+        itemsTruncated: raw.lineItems.pageInfo.hasNextPage,
+      }]
+    })
+  }
+
+  return { ...client, listDemoOrders }
 }
