@@ -125,7 +125,7 @@ code, pre, .live-tag { font-family: 'SFMono-Regular', Consolas, 'Liberation Mono
 .chat-activity-tool { color: #7a4b2a; }
 .chat-activity-detail { flex-basis: 100%; color: #6c7764; font-size: 9px; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 60px; overflow: hidden; }
 .chat-error { margin: 0; padding: 11px 14px; border-top: 1px solid #c9cec0; background: #f7ded6; color: #8c2f20; font-size: 12px; }
-.chat-composer { display: flex; align-items: flex-end; gap: 12px; padding: 12px 14px; border-top: 1px solid #c9cec0; background: #fffdf5; }
+.chat-composer { display: flex; align-items: stretch; gap: 12px; padding: 12px 14px; border-top: 1px solid #c9cec0; background: #fffdf5; }
 .chat-input { flex: 1; width: 100%; resize: vertical; min-height: 64px; }
 .chat-send { flex: 0 0 auto; }
 @media (max-width: 650px) {
@@ -133,7 +133,7 @@ code, pre, .live-tag { font-family: 'SFMono-Regular', Consolas, 'Liberation Mono
   .chat-scroll { height: clamp(220px, calc(100dvh - 560px), 320px); }
   .chat-toolbar-hint { display: none; }
   .chat-bubble { max-width: 92%; }
-  .chat-composer { flex-direction: column; align-items: stretch; }
+  .chat-composer { flex-direction: column; }
 }
 
 .chat-markdown { white-space: normal; }
