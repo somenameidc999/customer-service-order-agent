@@ -41,10 +41,9 @@ export function createApp(clientDirectory?: string, options: AppOptions = {}) {
   app.get('/api/demo-orders', async (c) => {
     c.header('Cache-Control', 'private, no-store')
     const store = environment.DEMO_ORDER_STORE_DOMAIN?.trim()
-    const ids = environment.DEMO_ORDER_IDS?.split(',').map((id) => id.trim())
-    if (!deployment.credentials || !store || !ids?.length) return c.json({ orders: [] })
+    if (!deployment.credentials || !store) return c.json({ orders: [] })
     try {
-      return c.json({ orders: await demoOrders.listDemoOrders(store, ids) })
+      return c.json({ orders: await demoOrders.listDemoOrders(store) })
     } catch {
       return c.json({ error: 'Demo orders are temporarily unavailable. Try refreshing.' }, 502)
     }

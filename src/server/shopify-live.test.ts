@@ -65,7 +65,7 @@ function transport(handler: (body: { query: string; variables: Record<string, un
   return { fetch, calls }
 }
 
-test('demo orders query at most twenty configured IDs and exclude real orders and real email domains', async () => {
+test('demo orders discover the latest 50 Shopify test orders and expose only eligible records', async () => {
   const order = {
     ...rawOrder, test: true, updatedAt: '2026-11-03T12:00:00Z', cancelledAt: null,
     totalPriceSet: { presentmentMoney: { amount: '12.34', currencyCode: 'CAD' } },
@@ -75,18 +75,26 @@ test('demo orders query at most twenty configured IDs and exclude real orders an
   }
   const mock = transport(({ query, variables }) => {
     assert.match(query, /^query DemoOrders/)
-    assert.deepEqual(variables.ids, Array.from({ length: 20 }, (_, index) => `gid://shopify/Order/${42 + index}`))
-    return json({ data: { nodes: [order,
-      { ...order, id: 'gid://shopify/Order/43', test: false },
-      { ...order, id: 'gid://shopify/Order/44', email: 'visitor@real-shop.com' },
-      { ...order, id: 'gid://shopify/Order/99' }, null,
-    ] } })
+    assert.match(query, /orders\(first: 50, query: "test:true", sortKey: CREATED_AT, reverse: true\)/)
+    assert.deepEqual(variables, {})
+    return json({ data: { orders: { nodes: [
+      { ...order, name: '#47', test: false },
+      { ...order, name: '#46', email: 'visitor@real-shop.com' },
+      { ...order, name: '#45', customer: null },
+      { ...order, name: '#44', email: null },
+      { ...order, name: '#43' },
+      order,
+    ] } } })
   })
   const client = createShopifyLiveClient({ config, fetch: mock.fetch })
-  assert.deepEqual(await client.listDemoOrders('other-shop.myshopify.com', ['42']), [])
+  assert.deepEqual(await client.listDemoOrders('other-shop.myshopify.com'), [])
   assert.equal(mock.calls.length, 0)
-  const orders = await client.listDemoOrders(config.storeDomain, ['bad-id', '42', ...Array.from({ length: 25 }, (_, index) => String(42 + index))])
+  const orders = await client.listDemoOrders(config.storeDomain)
+  assert.deepEqual(orders.map(({ number }) => number), ['#43', '#42'])
+  assert.equal(mock.calls.filter(({ url }) => url.endsWith('/graphql.json')).length, 1)
   assert.deepEqual(orders.map(({ number, email, refunded, shippingAddress }) => ({ number, email, refunded, shippingAddress })), [{
+    number: '#43', email: 'customer@example.com', refunded: { amount: '1.00', currencyCode: 'CAD' }, shippingAddress: ['12 Test Street'],
+  }, {
     number: '#42', email: 'customer@example.com', refunded: { amount: '1.00', currencyCode: 'CAD' }, shippingAddress: ['12 Test Street'],
   }])
   assert.equal('customer' in orders[0]!, false)
