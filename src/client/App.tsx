@@ -1,8 +1,8 @@
 import { useState } from 'react'
 import { Card } from 'pixel-retroui'
 import { ChatPanel } from './ChatPanel'
+import { DemoOrderPreview } from './DemoOrderPreview'
 import { DemoOrders } from './DemoOrders'
-import { SystemCheck } from './SystemCheck'
 
 export function App() {
   const [orderRevision, setOrderRevision] = useState(0)
@@ -23,9 +23,8 @@ export function App() {
         <section className="demo-intro" aria-labelledby="intro-title">
           <div>
             <h1 id="intro-title">Small stack. <span className="intro-phrase">Big <span className="intro-ideas">ideas<svg aria-hidden="true" viewBox="0 0 320 16" preserveAspectRatio="none"><path d="m2 9 82-5 91 5 142-2" /></svg></span><span className="intro-period">.</span></span></h1>
-            <p>Your next thing starts here. A fast Hono backend, a React frontend, and a little retro personality.</p>
           </div>
-          <SystemCheck />
+          <DemoOrderPreview />
         </section>
         <DemoOrders revision={orderRevision} />
         <section className="chat-section" aria-labelledby="chat-title">
