@@ -323,7 +323,7 @@ export function ChatPanel({ onOrderChange }: { onOrderChange?: () => void }) {
           aria-label="Message the agent"
           placeholder="Ask the agent anything…"
           value={draft}
-          rows={3}
+          rows={1}
           maxLength={4000}
           onChange={(event) => setDraft(event.target.value)}
           onKeyDown={onKeyDown}

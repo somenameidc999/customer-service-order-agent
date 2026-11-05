@@ -126,7 +126,7 @@ code, pre, .live-tag { font-family: 'SFMono-Regular', Consolas, 'Liberation Mono
 .chat-activity-detail { flex-basis: 100%; color: #6c7764; font-size: 9px; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 60px; overflow: hidden; }
 .chat-error { margin: 0; padding: 11px 14px; border-top: 1px solid #c9cec0; background: #f7ded6; color: #8c2f20; font-size: 12px; }
 .chat-composer { display: flex; align-items: stretch; gap: 12px; padding: 12px 14px; border-top: 1px solid #c9cec0; background: #fffdf5; }
-.chat-input { flex: 1; width: 100%; resize: vertical; min-height: 64px; }
+.chat-input { flex: 1; width: 100%; resize: vertical; min-height: 0; }
 .chat-send { flex: 0 0 auto; }
 @media (max-width: 650px) {
   .chat-card { padding: 20px 17px; }
