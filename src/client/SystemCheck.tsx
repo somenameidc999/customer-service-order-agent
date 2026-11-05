@@ -21,7 +21,7 @@ export function SystemCheck() {
   }, [])
 
   return (
-    <Card bg="#e5e9dc" borderColor="#263f34" shadowColor="#c0c6b3" textColor="#263f34" className="system-check">
+    <Card className="system-check">
       <div className="system-check-bar">
         <span className="system-check-dots" aria-hidden="true"><i /><i /><i /></span>
         <span>server / system-check</span>
