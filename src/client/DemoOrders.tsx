@@ -64,7 +64,7 @@ export function DemoOrders({ revision }: { revision: number }) {
         </div>
         {error && <p role="alert">{error}{orders?.length ? ' Showing the last loaded details.' : ''}</p>}
         {!orders && loading && <p role="status">Loading demo orders…</p>}
-        {orders?.length === 0 && !error && !loading && <p>No demo orders are configured.</p>}
+        {orders?.length === 0 && !error && !loading && <p>No demo orders found.</p>}
         <div className="demo-order-list">
           {visibleOrders?.map((order) => (
             <details key={order.number} name="demo-order" className="demo-order">

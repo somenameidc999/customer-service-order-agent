@@ -49,6 +49,26 @@ test('shared demo protects pages, assets, chat, actions, and unknown routes; hea
   })).status, 401)
 })
 
+test('the authenticated demo order route discovers orders when only the demo store is configured', async () => {
+  const stores: string[] = []
+  const demoOrders = { listDemoOrders: async (store: string) => { stores.push(store); return [] } }
+  const enabled = { ...environment, DEMO_ORDER_STORE_DOMAIN: ' demo-store.myshopify.com ' }
+  const app = createApp(undefined, { environment: enabled, demoOrders })
+  assert.equal((await app.request('/api/demo-orders')).status, 401)
+
+  const response = await app.request('/api/demo-orders', { headers: proxiedHeaders })
+  assert.equal(response.status, 200)
+  assert.deepEqual(await response.json(), { orders: [] })
+  assert.match(response.headers.get('cache-control') ?? '', /no-store/)
+  assert.deepEqual(stores, ['demo-store.myshopify.com'])
+
+  const local = createApp(undefined, { environment: { DEMO_ORDER_STORE_DOMAIN: enabled.DEMO_ORDER_STORE_DOMAIN }, demoOrders })
+  const unconfigured = createApp(undefined, { environment, demoOrders })
+  assert.deepEqual(await (await local.request('http://localhost/api/demo-orders')).json(), { orders: [] })
+  assert.deepEqual(await (await unconfigured.request('/api/demo-orders', { headers: proxiedHeaders })).json(), { orders: [] })
+  assert.deepEqual(stores, ['demo-store.myshopify.com'])
+})
+
 test('authenticated chat streams events and sets a Secure session cookie behind HTTPS termination', async () => {
   const app = createApp(undefined, { environment, agent: async (_input, emit) => {
     emit({ type: 'assistant_message', text: 'Demo response' })

@@ -72,7 +72,7 @@ vite.config.ts              React build and development API proxy
 | GET | `/api/health` | Status, service name, and server timestamp |
 | GET | `/api/hello?name=Ada` | Personalized greeting from Hono |
 | POST | `/api/chat` | Streams an agent turn as server-sent events |
-| GET | `/api/demo-orders` | Reads the configured Shopify test orders for the password-protected demo |
+| GET | `/api/demo-orders` | Reads recent Shopify test orders for the password-protected demo |
 
 The greeting name defaults to `builder`. Supplied names are trimmed and must contain 1–40 characters. Invalid names return HTTP 400 with an error message.
 

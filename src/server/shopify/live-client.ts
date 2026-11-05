@@ -46,7 +46,6 @@ const ORDER_FIELDS = `id name email phone customer { ${CUSTOMER_FIELDS} }
   refunds { id createdAt note totalRefundedSet { shopMoney { amount currencyCode } } }`
 
 interface RawDemoOrder {
-  id: string
   name: string
   test: boolean
   email: string | null
@@ -294,27 +293,23 @@ export function createShopifyLiveClient(options: ShopifyLiveClientOptions = {}) 
     },
     ...writes,
   }
-  async function listDemoOrders(storeDomain: string, numericIds: string[]): Promise<DemoOrder[]> {
-    const ids = [...new Set(numericIds.filter((id) => /^\d+$/.test(id)))].slice(0, 20)
-      .map((id) => `gid://shopify/Order/${id}`)
-    if (!storeDomain || !ids.length) return []
+  async function listDemoOrders(storeDomain: string): Promise<DemoOrder[]> {
+    if (!storeDomain) return []
     config ??= loadShopifyConfig()
     if (config.storeDomain !== storeDomain) return []
 
-    const data = await query<{ nodes: (RawDemoOrder | null)[] }>(`query DemoOrders($ids: [ID!]!) {
-      nodes(ids: $ids) { ... on Order {
-        id name test email customer { firstName lastName } displayFinancialStatus displayFulfillmentStatus cancelledAt updatedAt
+    const data = await query<{ orders: { nodes: RawDemoOrder[] } }>(`query DemoOrders {
+      orders(first: 50, query: "test:true", sortKey: CREATED_AT, reverse: true) { nodes {
+        name test email customer { firstName lastName } displayFinancialStatus displayFulfillmentStatus cancelledAt updatedAt
         totalPriceSet { presentmentMoney { amount currencyCode } }
         totalDiscountsSet { presentmentMoney { amount currencyCode } }
         totalRefundedSet { presentmentMoney { amount currencyCode } }
         shippingAddress { formatted(withName: false, withCompany: false) }
         lineItems(first: 20) { nodes { title quantity } pageInfo { hasNextPage } }
       } }
-    }`, { ids })
-    const orders = new Map(data.nodes.filter((node) => node !== null).map((node) => [node.id, node]))
-    return ids.flatMap((id) => {
-      const raw = orders.get(id)
-      if (!raw || raw.test !== true || !raw.customer || !raw.email || !DEMO_EMAIL.test(raw.email)) return []
+    }`)
+    return data.orders.nodes.flatMap((raw) => {
+      if (raw.test !== true || !raw.customer || !raw.email || !DEMO_EMAIL.test(raw.email)) return []
       return [{
         number: raw.name, email: raw.email, customerName: [raw.customer.firstName, raw.customer.lastName].filter(Boolean).join(' '),
         financialStatus: raw.displayFinancialStatus,
