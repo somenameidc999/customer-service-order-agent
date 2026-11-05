@@ -5,8 +5,6 @@ import type { ShopifyActionView } from '../shared/actions'
 import { ActionConfirmation } from './ActionConfirmation'
 import { MarkdownMessage } from './MarkdownMessage'
 
-const ink = '#263f34'
-
 type ActivityKind = 'tool' | 'subagent' | 'hook'
 
 interface Activity {
@@ -250,10 +248,8 @@ export function ChatPanel({ onOrderChange }: { onOrderChange?: () => void }) {
             type="button"
             onClick={clearConversation}
             disabled={busy || messages.length === 0}
-            bg="#f4f2e9"
-            textColor={ink}
-            shadow="#d9c5ad"
-            borderColor={ink}
+            bg="var(--secondary-bg)"
+            shadow="var(--secondary-shadow)"
             className="button chat-clear"
           >
             Clear
@@ -274,9 +270,7 @@ export function ChatPanel({ onOrderChange }: { onOrderChange?: () => void }) {
             <div key={message.id} className={`chat-message chat-message-${message.role}`}>
               <Bubble
                 direction={message.role === 'user' ? 'right' : 'left'}
-                bg={message.role === 'user' ? '#f2a38d' : '#fffdf5'}
-                borderColor={ink}
-                textColor={ink}
+                bg={message.role === 'assistant' ? 'var(--secondary-bg)' : undefined}
                 className="chat-bubble"
               >
                 <span className="chat-role">{message.role === 'user' ? 'You' : 'Agent'}</span>
@@ -327,19 +321,14 @@ export function ChatPanel({ onOrderChange }: { onOrderChange?: () => void }) {
           maxLength={4000}
           onChange={(event) => setDraft(event.target.value)}
           onKeyDown={onKeyDown}
-          bg="#f4f2e9"
-          textColor={ink}
-          borderColor={ink}
           className="chat-input"
         />
         <Button
           type="button"
           onClick={() => void sendMessage()}
           disabled={busy || !draft.trim()}
-          bg="#a8c7a0"
-          textColor={ink}
-          shadow="#d9c5ad"
-          borderColor={ink}
+          bg="var(--primary-bg)"
+          shadow="var(--primary-shadow)"
           className="button chat-send"
         >
           {busy ? 'Working…' : 'Send'}

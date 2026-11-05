@@ -4,8 +4,6 @@ import { ChatPanel } from './ChatPanel'
 import { DemoOrders } from './DemoOrders'
 import { SystemCheck } from './SystemCheck'
 
-const ink = '#263f34'
-
 export function App() {
   const [orderRevision, setOrderRevision] = useState(0)
 
@@ -31,7 +29,7 @@ export function App() {
         </section>
         <DemoOrders revision={orderRevision} />
         <section className="chat-section" aria-labelledby="chat-title">
-          <Card bg="#e5e9dc" borderColor={ink} shadowColor="#c6c9b9" textColor={ink} className="chat-card">
+          <Card className="chat-card">
             <h2 id="chat-title">Chat with the order agent</h2>
             <p className="card-description">Ask about an order, update a shipping address, or request a refund.</p>
             <ChatPanel onOrderChange={() => setOrderRevision((value) => value + 1)} />
