@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { test } from 'node:test'
 import { createApp } from './app.js'
 import { loadDeploymentConfig } from './deployment.js'
@@ -47,6 +50,36 @@ test('shared demo protects pages, assets, chat, actions, and unknown routes; hea
   assert.equal((await app.request('/api/hello', {
     headers: { authorization: `Basic ${Buffer.from('demo:wrong').toString('base64')}` },
   })).status, 401)
+})
+
+test('only existing fingerprinted assets get private immutable caching', async (t) => {
+  const directory = mkdtempSync(join(tmpdir(), 'order-agent-assets-'))
+  t.after(() => rmSync(directory, { recursive: true, force: true }))
+  mkdirSync(join(directory, 'assets'))
+  writeFileSync(join(directory, 'index.html'), '<title>Order support</title>')
+  writeFileSync(join(directory, 'assets', 'index-aBc12_-3.js'), 'export {}')
+  writeFileSync(join(directory, 'assets', 'unversioned.js'), 'export {}')
+  const app = createApp(directory, { environment })
+
+  const versioned = await app.request('/assets/index-aBc12_-3.js', { headers: proxiedHeaders })
+  assert.equal(versioned.status, 200)
+  assert.equal(versioned.headers.get('cache-control'), 'private, max-age=31536000, immutable')
+  assert.equal(await versioned.text(), 'export {}')
+
+  for (const [path, status] of [
+    ['/', 200],
+    ['/api/hello', 200],
+    ['/assets/unversioned.js', 200],
+    ['/assets/missing-aBc12_-3.js', 404],
+  ] as const) {
+    const response = await app.request(path, { headers: proxiedHeaders })
+    assert.equal(response.status, status, path)
+    assert.equal(response.headers.get('cache-control'), 'private, no-store', path)
+    await response.text()
+  }
+  const anonymous = await app.request('/assets/index-aBc12_-3.js')
+  assert.equal(anonymous.status, 401)
+  assert.equal(anonymous.headers.get('cache-control'), 'private, no-store')
 })
 
 test('the authenticated demo order route discovers orders when only the demo store is configured', async () => {

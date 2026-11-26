@@ -1,9 +1,18 @@
-import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { Bubble, Button, TextArea } from 'pixel-retroui'
 import { buildChatRequest, type AgentEvent } from '../shared/chat'
 import type { ShopifyActionView } from '../shared/actions'
 import { ActionConfirmation } from './ActionConfirmation'
-import { MarkdownMessage } from './MarkdownMessage'
+
+const MarkdownMessage = lazy(() => import('./MarkdownMessage').then(
+  ({ MarkdownMessage }) => ({ default: MarkdownMessage }),
+  // A tab left open across a deploy may request a chunk that no longer exists.
+  () => ({ default: PlainTextMessage }),
+))
+
+function PlainTextMessage({ text }: { text: string }) {
+  return <span className="chat-text">{text}</span>
+}
 
 type ActivityKind = 'tool' | 'subagent' | 'hook'
 
@@ -294,7 +303,11 @@ export function ChatPanel({ onOrderChange }: { onOrderChange?: () => void }) {
                   <div className="chat-action-record" data-action-receipt={action.id}>
                     <ActionConfirmation action={action} onChange={updateAction} />
                   </div>
-                ) : message.content && (message.role === 'assistant' ? <MarkdownMessage text={message.content} /> : <span className="chat-text">{message.content}</span>)}
+                ) : message.content && (message.role === 'assistant' ? (
+                  <Suspense fallback={<PlainTextMessage text={message.content} />}>
+                    <MarkdownMessage text={message.content} />
+                  </Suspense>
+                ) : <PlainTextMessage text={message.content} />)}
                 {message.pending && !message.content && <span className="chat-typing">Agent is thinking…</span>}
               </Bubble>
             </div>

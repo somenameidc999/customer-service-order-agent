@@ -68,7 +68,13 @@ export function createApp(clientDirectory?: string, options: AppOptions = {}) {
   // Serve exactly one frontend page. Unknown paths return JSON with status 404.
   if (clientDirectory) {
     app.get('/', serveStatic({ path: `${clientDirectory}/index.html` }))
-    app.get('/assets/*', serveStatic({ root: clientDirectory }))
+    app.get('/assets/*', async (c, next) => {
+      await next()
+      // Vite fingerprints production asset names with an eight-character content hash.
+      if (c.res.ok && /-[\w-]{8}\.[a-z0-9]+$/i.test(c.req.path)) {
+        c.header('Cache-Control', 'private, max-age=31536000, immutable')
+      }
+    }, serveStatic({ root: clientDirectory }))
   }
   app.notFound((c) => c.json({ error: 'Not found' }, 404))
 
